@@ -1,0 +1,40 @@
+# autoencoder_vars
+<tf.Variable 'encoder/kernel:0' shape=(1, 200) dtype=float32_ref>
+<tf.Variable 'encoder/bias:0' shape=(200,) dtype=float32_ref>
+<tf.Variable 'encoder/gru_cell/gates/kernel:0' shape=(800, 1400) dtype=float32_ref>
+<tf.Variable 'encoder/gru_cell/gates/bias:0' shape=(1400,) dtype=float32_ref>
+<tf.Variable 'encoder/gru_cell/candidate/kernel:0' shape=(800, 700) dtype=float32_ref>
+<tf.Variable 'encoder/gru_cell/candidate/bias:0' shape=(700,) dtype=float32_ref>
+<tf.Variable 'generator/kernel:0' shape=(1, 200) dtype=float32_ref>
+<tf.Variable 'generator/bias:0' shape=(200,) dtype=float32_ref>
+<tf.Variable 'generator/gru_cell/gates/kernel:0' shape=(800, 1400) dtype=float32_ref>
+<tf.Variable 'generator/gru_cell/gates/bias:0' shape=(1400,) dtype=float32_ref>
+<tf.Variable 'generator/gru_cell/candidate/kernel:0' shape=(800, 700) dtype=float32_ref>
+<tf.Variable 'generator/gru_cell/candidate/bias:0' shape=(700,) dtype=float32_ref>
+<tf.Variable 'embedding/embedding:0' shape=(5933, 100) dtype=float32_ref>
+<tf.Variable 'projection/kernel:0' shape=(700, 5933) dtype=float32_ref>
+<tf.Variable 'projection/bias:0' shape=(5933,) dtype=float32_ref>
+
+# d0_vars
+<tf.Variable 'discriminator.0/conv-maxpool-2/kernel:0' shape=(2, 700, 1, 128) dtype=float32_ref>
+<tf.Variable 'discriminator.0/conv-maxpool-2/bias:0' shape=(128,) dtype=float32_ref>
+<tf.Variable 'discriminator.0/conv-maxpool-3/kernel:0' shape=(3, 700, 1, 128) dtype=float32_ref>
+<tf.Variable 'discriminator.0/conv-maxpool-3/bias:0' shape=(128,) dtype=float32_ref>
+<tf.Variable 'discriminator.0/conv-maxpool-4/kernel:0' shape=(4, 700, 1, 128) dtype=float32_ref>
+<tf.Variable 'discriminator.0/conv-maxpool-4/bias:0' shape=(128,) dtype=float32_ref>
+<tf.Variable 'discriminator.0/conv-maxpool-5/kernel:0' shape=(5, 700, 1, 128) dtype=float32_ref>
+<tf.Variable 'discriminator.0/conv-maxpool-5/bias:0' shape=(128,) dtype=float32_ref>
+<tf.Variable 'discriminator.0/output/kernel:0' shape=(512, 1) dtype=float32_ref>
+<tf.Variable 'discriminator.0/output/bias:0' shape=(1,) dtype=float32_ref>
+
+# d1_vars
+<tf.Variable 'discriminator.1/conv-maxpool-2/kernel:0' shape=(2, 700, 1, 128) dtype=float32_ref>
+<tf.Variable 'discriminator.1/conv-maxpool-2/bias:0' shape=(128,) dtype=float32_ref>
+<tf.Variable 'discriminator.1/conv-maxpool-3/kernel:0' shape=(3, 700, 1, 128) dtype=float32_ref>
+<tf.Variable 'discriminator.1/conv-maxpool-3/bias:0' shape=(128,) dtype=float32_ref>
+<tf.Variable 'discriminator.1/conv-maxpool-4/kernel:0' shape=(4, 700, 1, 128) dtype=float32_ref>
+<tf.Variable 'discriminator.1/conv-maxpool-4/bias:0' shape=(128,) dtype=float32_ref>
+<tf.Variable 'discriminator.1/conv-maxpool-5/kernel:0' shape=(5, 700, 1, 128) dtype=float32_ref>
+<tf.Variable 'discriminator.1/conv-maxpool-5/bias:0' shape=(128,) dtype=float32_ref>
+<tf.Variable 'discriminator.1/output/kernel:0' shape=(512, 1) dtype=float32_ref>
+<tf.Variable 'discriminator.1/output/bias:0' shape=(1,) dtype=float32_ref>
