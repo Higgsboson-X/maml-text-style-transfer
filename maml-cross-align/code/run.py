@@ -35,9 +35,9 @@ def _train_maml(net, mconf, seqs, lengths, vocab, total_epochs=10, epochs_per_va
 		model_file = "epoch-{}.maml".format(end_epoch)
 		model_path = mconf.model_save_dir_prefix + model_file
 		net.save_model(model_path)
-		mconf.last_ckpt = model_file
+		mconf.last_maml_ckpt = model_file
 		print("evaluation\n-------")
-		for t in range(mconf.num_tasks-1):
+		for t in range(mconf.num_tasks):
 			print("inferring task {} ...".format(t+1))
 			for s in [0, 1]:
 				inferred_seqs = net.infer(
@@ -51,7 +51,7 @@ def _train_maml(net, mconf, seqs, lengths, vocab, total_epochs=10, epochs_per_va
 				print("\t{}: ".format(s), inferred_seqs.shape)
 
 
-def _fine_tune(net, mconf, seqs, lengths, vocab, total_epochs=6, epochs_per_val=2, batch_size=64):
+def _fine_tune(net, mconf, seqs, lengths, vocab, total_epochs=6, epochs_per_val=2, batch_size=64, task_id=1):
 
 	print("transfer learning ...")
 	turns = total_epochs // epochs_per_val
@@ -68,10 +68,10 @@ def _fine_tune(net, mconf, seqs, lengths, vocab, total_epochs=6, epochs_per_val=
 			epochs=end_epoch,
 			init_epoch=init_epoch
 		)
-		model_file = "epoch-{}.t{}".format(end_epoch, mconf.num_tasks)
+		model_file = "epoch-{}.t{}".format(end_epoch, task_id)
 		model_path = mconf.model_save_dir_prefix + model_file
 		net.save_model(model_path)
-		mconf.last_ckpt = model_file
+		mconf.last_tsf_ckpts["t{}".format(task_id)] = model_file
 		print("evaluation\n-------")
 		print("inferring ...")
 		for s in [0, 1]:
@@ -80,39 +80,27 @@ def _fine_tune(net, mconf, seqs, lengths, vocab, total_epochs=6, epochs_per_val=
 				src=s, tgt=1-s
 			)
 			sents = vocab.decode_sents(inferred_seqs)
-			with open(mconf.output_dir_prefix + "epoch-{}_t{}_{}-{}.transfer".format(end_epoch, mconf.num_tasks, s, 1-s), 'w', encoding="utf-8") as f:
+			with open(mconf.output_dir_prefix + "epoch-{}_t{}_{}-{}.transfer".format(end_epoch, task_id, s, 1-s), 'w', encoding="utf-8") as f:
 				for sent in sents:
 					f.write(sent + '\n')
 			print("\t{}: ".format(s), inferred_seqs.shape)
 
 
-def run_maml(mconf, device, load_data=False, load_model=False, maml_epochs=10, transfer_epochs=6, epochs_per_val=2, infer=False, maml_batch_size=8, sub_batch_size=32, train_batch_size=64):
+def run_maml(mconf, device, load_data=False, load_model=False, maml_epochs=10, transfer_epochs=6, epochs_per_val=2, infer_task='', maml_batch_size=8, sub_batch_size=32, train_batch_size=64):
 
-	print("loading data ...")
-	vocab, seqs, lengths = utils.data_loader.load_data(mconf=mconf, load_data=load_data, save=(not load_data))
-	utils.data_loader.print_data_info(vocab, seqs, lengths, mconf.num_tasks)
+	if maml_epochs > 0 or transfer_epochs > 0:
+		print("loading data ...")
+		vocab, seqs, lengths = utils.data_loader.load_data(mconf=mconf, load_data=load_data, save=(not load_data))
+		utils.data_loader.print_data_info(vocab, seqs, lengths, mconf.num_tasks)
+	else:
+		print("inference mode")
+		with open(mconf.processed_data_save_dir_prefix + "{}t/vocab".format(mconf.num_tasks), "rb") as f:
+			vocab = pickle.load(f)
 
 	printer = pprint.PrettyPrinter(indent=4)
 	print(">>>>>>> Model Config <<<<<<<")
 	printer.pprint(vars(mconf))
 
-	# the last task is used for transfer learning
-	maml_seqs = {
-		"train": seqs["train"][:-1],
-		"val": seqs["val"][:-1]
-	}
-	maml_lengths = {
-		"train": lengths["train"][:-1],
-		"val": lengths["val"][:-1]
-	}
-	transfer_seqs = {
-		"train": seqs["train"][-1],
-		"val": seqs["val"][-1]
-	}
-	transfer_lengths = {
-		"train": lengths["train"][-1],
-		"val": lengths["val"][-1]
-	}
 	if mconf.wordvec_path is None:
 		init_embedding = None
 	else:
@@ -121,7 +109,7 @@ def run_maml(mconf, device, load_data=False, load_model=False, maml_epochs=10, t
 		mconf.embedding_size = init_embedding.shape[1]
 
 	net = models.maml_cross_align.MAMLCrossAlign(
-		device=device, num_tasks=mconf.num_tasks-1, 
+		device=device, num_tasks=mconf.num_tasks, 
 		init_embedding=init_embedding, mconf=mconf
 	)
 	if load_model:
@@ -129,29 +117,48 @@ def run_maml(mconf, device, load_data=False, load_model=False, maml_epochs=10, t
 
 	# meta training
 	if maml_epochs > 0:
+		# the all tasks are used for maml training, and the specified tasks are required for transfer learning
+		maml_seqs = {
+			"train": seqs["train"],
+			"val": seqs["val"]
+		}
+		maml_lengths = {
+			"train": lengths["train"],
+			"val": lengths["val"]
+		}
 		_train_maml(
 			net, mconf, maml_seqs, maml_lengths, vocab=vocab,
 			total_epochs=maml_epochs, epochs_per_val=epochs_per_val,
 			support_batch_size=sub_batch_size, query_batch_size=maml_batch_size
 		)
-		model_file = dt.datetime.now().strftime("%Y%m%d%H%M") + ".maml"
-		model_path = mconf.model_save_dir_prefix + model_file
-		net.save_model(model_path)
-		mconf.last_ckpt = model_file
+		
 	if transfer_epochs > 0:
-		_fine_tune(
-			net, mconf, transfer_seqs, transfer_lengths, vocab=vocab,
-			total_epochs=transfer_epochs, epochs_per_val=epochs_per_val,
-			batch_size=train_batch_size
-		)
-		model_file = dt.datetime.now().strftime("%Y%m%d%H%M") + ".t{}".format(mconf.num_tasks)
+		for t in mconf.tsf_tasks:
+			transfer_seqs = {
+				"train": seqs["train"][t-1],
+				"val": seqs["val"][t-1]
+			}
+			transfer_lengths = {
+				"train": lengths["train"][t-1],
+				"val": lengths["val"][t-1]
+			}
+			_fine_tune(
+				net, mconf, transfer_seqs, transfer_lengths, vocab=vocab,
+				total_epochs=transfer_epochs, epochs_per_val=epochs_per_val,
+				batch_size=train_batch_size, task_id=t
+			)
+	
+	if maml_epochs > 0 or transfer_epochs > 0:
+		model_file = dt.datetime.now().strftime("%Y%m%d%H%M")
 		model_path = mconf.model_save_dir_prefix + model_file
 		net.save_model(model_path)
 		mconf.last_ckpt = model_file
 
-	if infer:
+	if infer_task != '':
+		infer_task = int(infer_task)
+		net.load_model(mconf.model_save_dir_prefix + mconf.last_tsf_ckpts["t{}".format(infer_task)])
 		s0, s1, l0, l1 = utils.data_processor.load_task_data(
-			mconf.num_tasks, mconf.data_dir_prefix, vocab,
+			infer_task, mconf.data_dir_prefix, vocab,
 			label="infer", mconf=mconf
 		)
 		infer_seqs = [s0, s1]
@@ -162,7 +169,7 @@ def run_maml(mconf, device, load_data=False, load_model=False, maml_epochs=10, t
 				src=s, tgt=1-s
 			)
 			sents = vocab.decode_sents(inferred_seqs)
-			with open(mconf.output_dir_prefix + "infer_t{}_{}-{}".format(mconf.num_tasks, s, 1-s), 'w', encoding="utf-8") as f:
+			with open(mconf.output_dir_prefix + "infer_t{}_{}-{}".format(infer_task, s, 1-s), 'w', encoding="utf-8") as f:
 				for sent in sents:
 					f.write(sent + '\n')
 
@@ -170,13 +177,13 @@ def run_maml(mconf, device, load_data=False, load_model=False, maml_epochs=10, t
 	return net
 
 
-def run_online_inference(mconf, timestamp, device):
+def run_online_inference(mconf, ckpt, device):
 
 	net = models.maml_cross_align.MAMLCrossAlign(
-		device=device, num_tasks=mconf.num_tasks-1, 
+		device=device, num_tasks=mconf.num_tasks, 
 		mconf=mconf
 	)
-	model_path = mconf.model_save_dir_prefix + timestamp
+	model_path = mconf.model_save_dir_prefix + ckpt
 	net.load_model(model_path)
 
 	with open(mconf.processed_data_save_dir_prefix + "{}t/vocab".format(mconf.num_tasks), "rb") as f:

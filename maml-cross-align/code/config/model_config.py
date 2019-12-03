@@ -40,7 +40,7 @@ class ModelConfig(object):
 
 		self.train_lr = 0.01 # fine-tuning
 
-		self.corpus = "translations"
+		self.corpus = "s1"
 
 		self.adv_loss_weight = 0.7
 
@@ -58,6 +58,9 @@ class ModelConfig(object):
 
 		for key in config:
 			setattr(self, key, config[key])
+
+		self.update_corpus()
+
 
 	def update_corpus(self):
 
@@ -80,6 +83,13 @@ class MAMLModelConfig(ModelConfig):
 		self.num_updates = 2
 
 		self.num_tasks = 7
+
+		self.tsf_tasks = list(range(1, self.num_tasks+1))
+
+		self.last_maml_ckpt = "maml"
+		self.last_tsf_ckpts = dict(
+			("t{}".format(task_id), "tsf_t{}".format(task_id)) for task_id in self.tsf_tasks
+		)
 
 		# self.processed_data_save_dir_prefix = "../data/{}/processed/{}t/".format(self.corpus, self.num_tasks)
 

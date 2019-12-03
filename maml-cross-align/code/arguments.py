@@ -16,7 +16,7 @@ def load_args():
 		help="path for model configuration"
 	)
 	parser.add_argument(
-		"--corpus", type=str, default="translations",
+		"--corpus", type=str, default="s1",
 		help="training corpus name"
 	)
 	parser.add_argument(
@@ -50,8 +50,8 @@ def load_args():
 		help="epochs per validation"
 	)
 	parser.add_argument(
-		"--inference", action="store_true",
-		help="whether to do inference for the transfer task"
+		"--infer-task-id", type=str, default='',
+		help="task id to perform inference"
 	)
 
 	parser.add_argument(
@@ -59,8 +59,8 @@ def load_args():
 		help="whether to do online inference, suppressing other arguments"
 	)
 	parser.add_argument(
-		"--timestamp", type=str, default="final",
-		help="timestamp to recover model, should be provided in online inference mode"
+		"--ckpt", type=str, default="final",
+		help="checkpoint to recover model, should be provided in online inference mode"
 	)
 
 	# device
