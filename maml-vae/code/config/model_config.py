@@ -18,14 +18,16 @@ class ModelConfig(object):
 		self.max_seq_length = 15
 
 		self.vocab_size = 5000
+		self.bow_size = 5000
 		self.vocab_cutoff = 7
+		self.bow_cutoff = 7
 
 		self.pad_id = 0
 		self.eos_id = 1
 		self.sos_id = 2
 		self.unk_id = 3
 
-		self.filter_stopwords = False
+		self.filter_stopwords = True
 
 		self.embedding_size = 300
 
@@ -36,8 +38,6 @@ class ModelConfig(object):
 
 		self.style_embedding_size = 8
 		self.content_embedding_size = self.encoder_rnn_size - self.style_embedding_size
-
-		# self.bow_size = 5000 # filtered stopwords and punctuations
 
 		self.sequence_word_dropout = 0.1
 		self.rnn_dropout = 0.1
@@ -59,7 +59,7 @@ class ModelConfig(object):
 		self.style_multitask_loss_weight = 10
 		self.content_multitask_loss_weight = 3
 
-		self.corpus = "yelp"
+		self.corpus = "s1"
 
 		self.last_ckpt = "final"
 
@@ -77,7 +77,9 @@ class ModelConfig(object):
 	def init_from_dict(self, config):
 
 		for key in config:
-			setattr(self, key, config[key])
+			if hasattr(self, key):
+				setattr(self, key, config[key])
+		self.update_corpus()
 
 	def update_corpus(self):
 
@@ -104,7 +106,14 @@ class MAMLModelConfig(ModelConfig):
 
 		self.num_updates = 2
 
-		self.num_tasks = 3
+		self.num_tasks = 7
+
+		self.tsf_tasks = list(range(1, self.num_tasks+1))
+
+		self.last_maml_ckpt = "maml"
+		self.last_tsf_ckpts = dict(
+			("t{}".format(task_id), "tsf_t{}".format(task_id)) for task_id in self.tsf_tasks
+		)
 
 		# self.processed_data_save_dir_prefix = "../data/{}/processed/{}t/".format(self.corpus, self.num_tasks)
 

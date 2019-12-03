@@ -3,14 +3,14 @@ import torch
 
 # ==================================================================
 # cross_align utils
-
+'''
 def gumbel_softmax(logits, gamma, eps=1e-20):
 
 	U = torch.randn(logits.shape)
 	G = -torch.log(-torch.log(U + eps) + eps)
 
 	return torch.nn.functional.softmax((logits + G) / gamma)
-
+'''
 
 def softsample_word(dropout, proj, embedding, gamma):
 

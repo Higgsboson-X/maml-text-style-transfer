@@ -154,19 +154,27 @@ def get_sequence_lengths(seqs, min_length, max_length):
 	return np.asarray(l, dtype="int32")
 
 
-def get_sequence_bow_representations(seqs, lengths, bow_size):
+def get_sequence_bow_representations(bow_seqs, bow_size):
 
 	bow_representations = np.asarray(
-		np.zeros(shape=(lengths.shape[0], bow_size)),
+		np.zeros(shape=(len(bow_seqs), bow_size)),
 		dtype="float32"
 	)
-	for i in range(seqs.shape[0]):
-		seq = seqs[i]
-		for j in range(lengths[i]):
+	inds = []
+	skipped = 0
+	for i in range(len(bow_seqs)):
+		seq = bow_seqs[i]
+		for j in range(len(seq)):
 			bow_representations[i][seq[j]] += 1.
-		bow_representations[i] /= lengths[i]
+		if len(seq) == 0:
+			skipped += 1
+			continue
+		inds.append(i)
+		bow_representations[i] /= len(seq)
 
-	return bow_representations
+	print("[WARNING] skipped {} sentences".format(skipped))
+
+	return bow_representations, inds
 
 
 # ====================================================================================================
@@ -177,12 +185,14 @@ def get_seq_data_from_file(filename, vocab, mconf, label=0):
 	with open(filename, 'r', encoding="utf-8") as f:
 		lines = f.readlines()
 
+	bow_seqs = vocab.get_bow_seqs(lines, maxlen=mconf.max_seq_length) # no padding
+	bow_representations, inds = get_sequence_bow_representations(bow_seqs, vocab._bows)
+
 	seqs = np.array(vocab.encode_sents(lines, length=mconf.max_seq_length, pad_token=False), dtype="int32")
 	lengths = get_sequence_lengths(seqs, mconf.min_seq_length, mconf.max_seq_length)
 	labels = np.full(lengths.shape[0], label, dtype="int32")
-	bow_representations = get_sequence_bow_representations(seqs, lengths, vocab._size)
 
-	return seqs, lengths, labels, bow_representations
+	return seqs[inds], lengths[inds], labels[inds], bow_representations
 
 
 def load_task_data(task_id, data_dir, vocab, label, mconf):

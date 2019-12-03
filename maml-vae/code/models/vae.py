@@ -64,12 +64,14 @@ class AdvAutoencoder(torch.nn.Module):
 		self.style_adversarial_mlp_fc = torch.nn.Linear(self.mconf.content_embedding_size, self.mconf.content_embedding_size)
 		self.style_adversarial_pred_fc = torch.nn.Linear(self.mconf.content_embedding_size, self.mconf.num_labels)
 		# content adversarial
-		self.content_adversarial_mlp_fc = torch.nn.Linear(self.mconf.style_embedding_size, self.mconf.vocab_size)
-		self.content_adversarial_pred_fc = torch.nn.Linear(self.mconf.vocab_size, self.mconf.vocab_size)
+		# self.content_adversarial_mlp_fc = torch.nn.Linear(self.mconf.style_embedding_size, self.mconf.vocab_size)
+		# self.content_adversarial_pred_fc = torch.nn.Linear(self.mconf.vocab_size, self.mconf.vocab_size)
+		self.content_adversarial_mlp_fc = torch.nn.Linear(self.mconf.style_embedding_size, self.mconf.bow_size)
+		self.content_adversarial_pred_fc = torch.nn.Linear(self.mconf.bow_size, self.mconf.bow_size)
 
 		# multitask layers
 		self.style_multitask_pred_fc = torch.nn.Linear(self.mconf.style_embedding_size, self.mconf.num_labels)
-		self.content_multitask_pred_fc = torch.nn.Linear(self.mconf.content_embedding_size, self.mconf.vocab_size)
+		self.content_multitask_pred_fc = torch.nn.Linear(self.mconf.content_embedding_size, self.mconf.bow_size)
 
 		# overall latent space classifier
 		# used to prove disentanglement
@@ -166,7 +168,7 @@ class AdvAutoencoder(torch.nn.Module):
 			p=self.mconf.fc_dropout, train=training
 		)
 		content_embeddings_sigma = torch.dropout(
-			torch.nn.functional.leaky_relu(self.content_embedding_mu_fc(sentence_embeddings)),
+			torch.nn.functional.leaky_relu(self.content_embedding_sigma_fc(sentence_embeddings)),
 			p=self.mconf.fc_dropout, train=training
 		)
 
@@ -380,7 +382,7 @@ class AdvAutoencoder(torch.nn.Module):
 			for b in range(num_batches):
 				# debug
 				# if b == 1:
-				#	break
+				# 	break
 
 				iterations += 1
 
@@ -423,10 +425,29 @@ class AdvAutoencoder(torch.nn.Module):
 				adversary_optimizer.zero_grad()
 				style_overall_optimizer.zero_grad()
 
+				# do not propagate loss to unrelated parameters
+				for param in self.adversary_params + self.style_overall_params:
+					param.requires_grad = False
+				for param in self.autoencoder_params:
+					param.requires_grad = True
 				composite_loss.backward(retain_graph=True)
+				
+				for param in self.autoencoder_params + self.style_overall_params:
+					param.requires_grad = False
+				for param in self.adversary_params:
+					param.requires_grad = True
 				style_adversarial_loss.backward(retain_graph=True)
 				content_adversarial_loss.backward(retain_graph=True)
+				
+				for param in self.autoencoder_params + self.adversary_params:
+					param.requires_grad = False
+				for param in self.style_overall_params:
+					param.requires_grad = True
 				style_overall_pred_loss.backward(retain_graph=True)
+
+				# reset to default
+				for param in self.autoencoder_params + self.adversary_params + self.style_overall_params:
+					param.requires_grad = True
 
 				# grad clip for all parameters
 				torch.nn.utils.clip_grad_norm_(self.parameters(), self.mconf.grad_clip)

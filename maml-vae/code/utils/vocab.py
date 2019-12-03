@@ -1,6 +1,7 @@
-from nltk.tokenize import word_tokenize
+from nltk.tokenize import word_tokenize, RegexpTokenizer
 from nltk.corpus import stopwords
 
+import string
 import pickle
 
 from config.model_config import default_mconf
@@ -11,15 +12,22 @@ class Vocabulary:
 
 		self._word2id = {'<pad>': 0, '<eos>': 1, '<sos>': 2, '<unk>': 3}
 		self._id2word = ['<pad>', '<eos>', '<sos>', '<unk>']
+		self._bow2id = {}
+		self._id2bow = []
+
 		self._tokenize = word_tokenize
 		self._size = 4
-
 		if mconf.filter_stopwords:
 			self.filter_list = list(set(stopwords.words("english")))
 		else:
 			self.filter_list = []
 
-		self.cutoff = mconf.vocab_cutoff
+		self.bow_filter_list = list(set(stopwords.words("english")))
+		# self.bow_tokenizer = RegexpTokenizer(r"\w+")
+		self._bows = 0
+
+		self.vocab_cutoff = mconf.vocab_cutoff
+		self.bow_cutoff = mconf.bow_cutoff
 
 	def init_from_saved_vocab(self, path):
 
@@ -28,11 +36,22 @@ class Vocabulary:
 
 		self._word2id = v._word2id
 		self._id2word = v._id2word
+		self._bow2id = v._bow2id
+		self._id2bow = v._id2bow
+
 		self._tokenize = v._tokenize
 		self._size = v._size
+		self.filter_list = v.filter_list
+
+		self.bow_filter_list = v.bow_filter_list
+		# self.bow_tokenizer = v.bow_tokenizer
+		self._bows = v._bows
+
+		self.vocab_cutoff = v.vocab_cutoff
+		self.bow_cutoff = v.bow_cutoff
 
 		f.close()
-		print("loaded vocabulary from {}".format(path))
+		print("initialized vocabulary from {}".format(path))
 
 	def update_vocab(self, path):
 
@@ -40,9 +59,10 @@ class Vocabulary:
 		lines = f.readlines()
 		print('lines: ' + str(len(lines)))
 
-		added = 0
+		added_words, added_bows = 0, 0
 		sentences = 0
 		words = {}
+		bows = {}
 
 		for line in lines:
 			sentences += 1
@@ -52,29 +72,58 @@ class Vocabulary:
 				line = line.split('\t')[1]
 			except:
 				pass
-			line = self._tokenize(line)
+			tokenized = self._tokenize(line)
+			bow_tokenized = [
+				w for w in tokenized if \
+					w not in self.bow_filter_list and \
+					all(char not in string.punctuation for char in w)
+			]
+			if len(bow_tokenized) > len(tokenized):
+				print("[DEBUG]", line, bow_tokenized, tokenized)
+				raise Exception("error")
 			if sentences % 5000 == 0:
-				print("word: " + str(added) + ", lines: " + str(sentences))
-			for word in line:
-				if word in self.filter_list or word in self._id2word:
-					pass
+				print("words: {}, bows: {}, lines: {}".format(added_words, added_bows, sentences))
+			# update vocab
+			for word in tokenized:
+				if word in self._word2id or word in self.filter_list:
+					continue
 				if word not in words:
 					words[word] = 1
-					added += 1
+					added_words += 1
 				else:
 					words[word] += 1
-		added = 0
+			# update bows
+			for word in bow_tokenized:
+				if word in self._bow2id or word in self.bow_filter_list:
+					continue
+				if word not in bows:
+					bows[word] = 1
+					added_bows += 1
+				else:
+					bows[word] += 1
+
+		added_words, added_bows = 0, 0
 		for word in words:
-			if words[word] >= self.cutoff and word not in self._word2id:
-				self._word2id[word] = self._size + added
+			if words[word] >= self.vocab_cutoff and word not in self._word2id:
+				self._word2id[word] = self._size + added_words
 				self._id2word.append(word)
-				added += 1
+				added_words += 1
+		for word in bows:
+			if bows[word] >= self.bow_cutoff and word not in self._bow2id:
+				self._bow2id[word] = self._bows + added_bows
+				self._id2bow.append(word)
+				added_bows += 1
 
-		print("updated " + str(added) + " words")
+		# debug
+		if added_bows > added_words:
+			print("[DEBUG]: ", [w for w in bows if w not in self._word2id])
 
-		self._size += added
+		print("updated: words {}, bows {}".format(added_words, added_bows))
+		print("current: words {}, bows {}".format(self._size, self._bows))
+
+		self._size += added_words
+		self._bows += added_bows
 		
-		return self._size
 
 	def word2id(self, word):
 
@@ -109,6 +158,8 @@ class Vocabulary:
 
 		for sent in sents:
 			sent = self._tokenize(sent.lower())
+			if self.filter_list != []:
+				sent = [w for w in sent if w not in self.filter_list]
 
 			if pad_token:
 				encoded = [0] * (len(sent) + 2)
@@ -168,3 +219,20 @@ class Vocabulary:
 		return sents
 
 
+	def get_bow_seqs(self, sents, maxlen=None):
+
+		bow_seqs = []
+
+		for sent in sents:
+			sent = self._tokenize(sent.lower())
+			sent = [w for w in sent if w not in self.bow_filter_list and w[0] not in string.punctuation]
+			bow = []
+			for k in range(len(sent)):
+				if maxlen is not None and k >= maxlen:
+					break
+				if sent[k] in self._bow2id:
+					bow.append(self._bow2id[sent[k]])
+
+			bow_seqs.append(bow)
+
+		return bow_seqs

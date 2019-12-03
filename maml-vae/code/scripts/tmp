@@ -1,8 +1,8 @@
 raw:
 
-python3 main.py --corpus yelp --maml-batch-size 8 --sub-batch-size 32 --train-batch-size 32 --maml-epochs 1 --transfer-epochs 1 --epochs-per-val 1
+python3 main.py --corpus s1 --maml-epochs 1 --transfer-epochs 1 --epochs-per-val 1 --config-path ../config/s1.json --maml-batch-size 8 --sub-batch-size 32 --train-batch-size 32
 
 
 saved data
 
-python3 main.py --corpus yelp --load-data --maml-batch-size 8 --sub-batch-size 32 --train-batch-size 32 --maml-epochs 1 --transfer-epochs 1 --epochs-per-val 1
+python3 main.py --corpus s1 --maml-epochs 1 --transfer-epochs 1 --epochs-per-val 1 --config-path ../config/s1.json --maml-batch-size 8 --sub-batch-size 32 --train-batch-size 32 --load-data

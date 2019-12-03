@@ -39,7 +39,7 @@ def main():
 
 	if args.online_inference:
 		run.run_online_inference(
-			mconf=mconf, timestamp=args.timestamp, 
+			mconf=mconf, ckpt=args.ckpt, 
 			tgt_file=args.tgt_file, device=torch.device("cpu")
 		)
 	else:
@@ -50,9 +50,9 @@ def main():
 		print("[DEVICE INFO] using {}".format(device))
 
 		run.run_maml(
-			mconf=mconf, device=device, load_data=args.load_data,
+			mconf=mconf, device=device, load_data=args.load_data, load_model=args.load_model,
 			maml_epochs=args.maml_epochs, transfer_epochs=args.transfer_epochs,
-			epochs_per_val=args.epochs_per_val, infer=args.inference,
+			epochs_per_val=args.epochs_per_val, infer_task=args.infer_task_id,
 			maml_batch_size=args.maml_batch_size, sub_batch_size=args.sub_batch_size, 
 			train_batch_size=args.train_batch_size
 		)

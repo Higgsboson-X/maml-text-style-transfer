@@ -70,7 +70,7 @@ class MAMLAdvAutoencoder:
 			for b in range(num_batches):
 				# debug
 				# if b == 1:
-				#	break
+				# 	break
 
 				iterations += 1
 
@@ -127,10 +127,29 @@ class MAMLAdvAutoencoder:
 						sub_adversary_optimizer.zero_grad()
 						sub_style_overall_optimizer.zero_grad()
 
+						# do not propagate loss to unrelated parameters
+						for param in self.m.adversary_params + self.m.style_overall_params:
+							param.requires_grad = False
+						for param in self.m.autoencoder_params:
+							param.requires_grad = True
 						composite_loss.backward(retain_graph=True)
+
+						for param in self.m.autoencoder_params + self.m.style_overall_params:
+							param.requires_grad = False
+						for param in self.m.adversary_params:
+							param.requires_grad = True
 						style_adversarial_loss.backward(retain_graph=True)
 						content_adversarial_loss.backward(retain_graph=True)
+						
+						for param in self.m.autoencoder_params + self.m.adversary_params:
+							param.requires_grad = False
+						for param in self.m.style_overall_params:
+							param.requires_grad = True
 						style_overall_pred_loss.backward(retain_graph=True)
+
+						# reset to default
+						for param in self.m.autoencoder_params + self.m.adversary_params + self.m.style_overall_params:
+							param.requires_grad = True
 
 						torch.nn.utils.clip_grad_norm_(self.m.parameters(), self.mconf.grad_clip)
 
@@ -190,10 +209,29 @@ class MAMLAdvAutoencoder:
 				meta_adversary_optimizer.zero_grad()
 				meta_style_overall_optimizer.zero_grad()
 
+				# do not propagate loss to unrelated parameters
+				for param in self.m.adversary_params + self.m.style_overall_params:
+					param.requires_grad = False
+				for param in self.m.autoencoder_params:
+					param.requires_grad = True
 				meta_autoencoder_loss.backward(retain_graph=True)
+
+				for param in self.m.autoencoder_params + self.m.style_overall_params:
+					param.requires_grad = False
+				for param in self.m.adversary_params:
+					param.requires_grad = True
 				meta_adv_style_loss.backward(retain_graph=True)
 				meta_adv_content_loss.backward(retain_graph=True)
+
+				for param in self.m.autoencoder_params + self.m.adversary_params:
+					param.requires_grad = False
+				for param in self.m.style_overall_params:
+					param.requires_grad = True
 				meta_style_overall_loss.backward(retain_graph=True)
+
+				# reset to default
+				for param in self.m.autoencoder_params + self.m.adversary_params + self.m.style_overall_params:
+					param.requires_grad = True
 
 				torch.nn.utils.clip_grad_norm_(self.m.parameters(), self.mconf.grad_clip)
 
@@ -229,7 +267,7 @@ class MAMLAdvAutoencoder:
 			print("epoch {}/{}: acc_vae_loss {:g}, acc_adv_loss {:g}, acc_style_ovrl {:g}".format(
 				epoch + 1, epochs, autoencoder_epoch_loss, adversarial_epoch_loss, style_overall_epoch_loss
 			))
-			print("\n\tgamma = {:g}, style_kl_weight = {:g}, content_kl_weight = {:g}".format(
+			print("\tgamma = {:g}, style_kl_weight = {:g}, content_kl_weight = {:g}".format(
 				gamma, style_kl_weight, content_kl_weight
 			))
 

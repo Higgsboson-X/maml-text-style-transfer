@@ -16,20 +16,24 @@ def load_args():
 		help="path for model configuration"
 	)
 	parser.add_argument(
-		"--corpus", type=str, default="yelp",
+		"--corpus", type=str, default="s1",
 		help="training corpus name"
 	)
 	parser.add_argument(
 		"--load-data", action="store_true", 
 		help="whether to load processed data"
 	)
+	parser.add_argument(
+		"--load-model", action="store_true", 
+		help="whether to load model from last checkpoint"
+	)
 
 	parser.add_argument(
-		"--maml-batch-size", type=int, default=8,
+		"--maml-batch-size", type=int, default=32,
 		help="batch size for meta-learning"
 	)
 	parser.add_argument(
-		"--sub-batch-size", type=int, default=32,
+		"--sub-batch-size", type=int, default=64,
 		help="batch size for sub-task training"
 	)
 	parser.add_argument(
@@ -47,11 +51,11 @@ def load_args():
 	)
 	parser.add_argument(
 		"--epochs-per-val", type=int, default=2,
-		help="epochs per validation"
+		help="epochs per validation and checkpointing"
 	)
 	parser.add_argument(
-		"--inference", action="store_true",
-		help="whether to do inference for the transfer task"
+		"--infer-task-id", type=str, default='',
+		help="task for inference, to disable training, set maml and transfer epochs to be 0"
 	)
 
 	parser.add_argument(
@@ -59,8 +63,8 @@ def load_args():
 		help="whether to do online inference, suppressing other arguments"
 	)
 	parser.add_argument(
-		"--timestamp", type=str, default="final",
-		help="timestamp to recover model, should be provided in online inference mode"
+		"--ckpt", type=str, default="final",
+		help="checkpoint to recover model, should be provided in online inference mode"
 	)
 	parser.add_argument(
 		"--tgt-file", type=str, default="./tgt",

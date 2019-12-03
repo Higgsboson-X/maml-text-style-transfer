@@ -44,6 +44,7 @@ def load_data(mconf, load_data=False, save=False):
 		vocab, seqs, lengths, labels, bow_representations = _load_data(mconf, save=save)
 
 	mconf.vocab_size = vocab._size
+	mconf.bow_size = vocab._bows
 
 	return vocab, seqs, lengths, labels, bow_representations
 
