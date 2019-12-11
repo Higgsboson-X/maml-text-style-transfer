@@ -40,8 +40,11 @@ class MAMLAdvAutoencoder:
 			params=self.m.autoencoder_params, lr=self.mconf.meta_autoencoder_lr,
 			betas=self.mconf.betas
 		)
-		meta_adversary_optimizer = torch.optim.RMSprop(
-			params=self.m.adversary_params, lr=self.mconf.meta_adversarial_lr
+		meta_style_adversary_optimizer = torch.optim.RMSprop(
+			params=self.m.style_adversary_params, lr=self.mconf.meta_style_adversarial_lr
+		)
+		meta_content_adversary_optimizer = torch.optim.RMSprop(
+			params=self.m.content_adversary_params, lr=self.mconf.meta_content_adversarial_lr
 		)
 		meta_style_overall_optimizer = torch.optim.RMSprop(
 			params=self.m.style_overall_params, lr=self.mconf.meta_style_overall_lr
@@ -51,8 +54,11 @@ class MAMLAdvAutoencoder:
 			params=self.m.autoencoder_params, lr=self.mconf.sub_autoencoder_lr,
 			betas=self.mconf.betas
 		)
-		sub_adversary_optimizer = torch.optim.RMSprop(
-			params=self.m.adversary_params, lr=self.mconf.sub_adversarial_lr
+		sub_style_adversary_optimizer = torch.optim.RMSprop(
+			params=self.m.style_adversary_params, lr=self.mconf.sub_style_adversarial_lr
+		)
+		sub_content_adversary_optimizer = torch.optim.RMSprop(
+			params=self.m.content_adversary_params, lr=self.mconf.sub_content_adversarial_lr
 		)
 		sub_style_overall_optimizer = torch.optim.RMSprop(
 			params=self.m.style_overall_params, lr=self.mconf.sub_style_overall_lr
@@ -88,7 +94,8 @@ class MAMLAdvAutoencoder:
 					batch_task = [support_batch[i][t] for i in range(len(support_batch))]
 					self.m.load_state_dict(init_state)
 					sub_autoencoder_optimizer.zero_grad()
-					sub_adversary_optimizer.zero_grad()
+					sub_style_adversary_optimizer.zero_grad()
+					sub_content_adversary_optimizer.zero_grad
 					sub_style_overall_optimizer.zero_grad()
 
 					init_state = copy.deepcopy(self.m.state_dict())
@@ -124,11 +131,12 @@ class MAMLAdvAutoencoder:
 								- self.mconf.content_adv_loss_weight * content_adversarial_entropy
 
 						sub_autoencoder_optimizer.zero_grad()
-						sub_adversary_optimizer.zero_grad()
+						sub_style_adversary_optimizer.zero_grad()
+						sub_content_adversary_optimizer.zero_grad()
 						sub_style_overall_optimizer.zero_grad()
 
 						# do not propagate loss to unrelated parameters
-						for param in self.m.adversary_params + self.m.style_overall_params:
+						for param in self.m.style_adversary_params + self.m.content_adversary_params + self.m.style_overall_params:
 							param.requires_grad = False
 						for param in self.m.autoencoder_params:
 							param.requires_grad = True
@@ -136,25 +144,26 @@ class MAMLAdvAutoencoder:
 
 						for param in self.m.autoencoder_params + self.m.style_overall_params:
 							param.requires_grad = False
-						for param in self.m.adversary_params:
+						for param in self.m.style_adversary_params + self.m.content_adversary_params:
 							param.requires_grad = True
 						style_adversarial_loss.backward(retain_graph=True)
 						content_adversarial_loss.backward(retain_graph=True)
 						
-						for param in self.m.autoencoder_params + self.m.adversary_params:
+						for param in self.m.autoencoder_params + self.m.style_adversary_params + self.m.content_adversary_params:
 							param.requires_grad = False
 						for param in self.m.style_overall_params:
 							param.requires_grad = True
 						style_overall_pred_loss.backward(retain_graph=True)
 
 						# reset to default
-						for param in self.m.autoencoder_params + self.m.adversary_params + self.m.style_overall_params:
+						for param in self.m.autoencoder_params + self.m.style_adversary_params + self.m.content_adversary_params + self.m.style_overall_params:
 							param.requires_grad = True
 
 						torch.nn.utils.clip_grad_norm_(self.m.parameters(), self.mconf.grad_clip)
 
 						sub_autoencoder_optimizer.step()
-						sub_adversary_optimizer.step()
+						sub_style_adversary_optimizer.step()
+						sub_content_adversary_optimizer.step()
 						sub_style_overall_optimizer.step()
 
 						if step == 0:
@@ -206,11 +215,12 @@ class MAMLAdvAutoencoder:
 				meta_style_overall_loss = torch.stack(query_style_overall_loss).sum(0) / self.num_tasks
 
 				meta_autoencoder_optimizer.zero_grad()
-				meta_adversary_optimizer.zero_grad()
+				meta_style_adversary_optimizer.zero_grad()
+				meta_content_adversary_optimizer.zero_grad()
 				meta_style_overall_optimizer.zero_grad()
 
 				# do not propagate loss to unrelated parameters
-				for param in self.m.adversary_params + self.m.style_overall_params:
+				for param in self.m.style_adversary_params + self.m.content_adversary_params + self.m.style_overall_params:
 					param.requires_grad = False
 				for param in self.m.autoencoder_params:
 					param.requires_grad = True
@@ -218,25 +228,26 @@ class MAMLAdvAutoencoder:
 
 				for param in self.m.autoencoder_params + self.m.style_overall_params:
 					param.requires_grad = False
-				for param in self.m.adversary_params:
+				for param in self.m.style_adversary_params + self.m.content_adversary_params:
 					param.requires_grad = True
 				meta_adv_style_loss.backward(retain_graph=True)
 				meta_adv_content_loss.backward(retain_graph=True)
 
-				for param in self.m.autoencoder_params + self.m.adversary_params:
+				for param in self.m.autoencoder_params + self.m.style_adversary_params + self.m.content_adversary_params:
 					param.requires_grad = False
 				for param in self.m.style_overall_params:
 					param.requires_grad = True
 				meta_style_overall_loss.backward(retain_graph=True)
 
 				# reset to default
-				for param in self.m.autoencoder_params + self.m.adversary_params + self.m.style_overall_params:
+				for param in self.m.autoencoder_params + self.m.style_adversary_params + self.m.content_adversary_params + self.m.style_overall_params:
 					param.requires_grad = True
 
 				torch.nn.utils.clip_grad_norm_(self.m.parameters(), self.mconf.grad_clip)
 
 				meta_autoencoder_optimizer.step()
-				meta_adversary_optimizer.step()
+				meta_style_adversary_optimizer.step()
+				meta_content_adversary_optimizer.step()
 				meta_style_overall_optimizer.step()
 
 				init_state = copy.deepcopy(self.m.state_dict())
@@ -277,9 +288,9 @@ class MAMLAdvAutoencoder:
 		self.m.train(input_sequences_all, lengths_all, labels_all, bow_representations_all, batch_size, epochs, init_epoch)
 
 
-	def get_batch_style_embeddings(self, input_sequences, lengths):
+	def get_batch_embeddings(self, input_sequences, lengths):
 
-		return self.m.get_batch_style_embeddings(input_sequences, lengths)
+		return self.m.get_batch_embeddings(input_sequences, lengths)
 
 
 	def infer(self, input_sequences, lengths, style_conditioning_embedding):

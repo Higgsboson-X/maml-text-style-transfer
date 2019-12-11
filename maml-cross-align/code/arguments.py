@@ -23,13 +23,17 @@ def load_args():
 		"--load-data", action="store_true", 
 		help="whether to load processed data"
 	)
+	parser.add_argument(
+		"--load-model", action="store_true", 
+		help="whether to load model from last checkpoint"
+	)
 
 	parser.add_argument(
-		"--maml-batch-size", type=int, default=8,
+		"--maml-batch-size", type=int, default=32,
 		help="batch size for meta-learning"
 	)
 	parser.add_argument(
-		"--sub-batch-size", type=int, default=32,
+		"--sub-batch-size", type=int, default=64,
 		help="batch size for sub-task training"
 	)
 	parser.add_argument(
@@ -38,25 +42,37 @@ def load_args():
 	)
 
 	parser.add_argument(
-		"--maml-epochs", type=int, default=10,
+		"--maml-epochs", type=int, default=0,
 		help="meta-training epochs"
 	)
 	parser.add_argument(
-		"--transfer-epochs", type=int, default=6,
+		"--transfer-epochs", type=int, default=0,
 		help="fine-tuning epochs"
 	)
 	parser.add_argument(
 		"--epochs-per-val", type=int, default=2,
-		help="epochs per validation"
+		help="epochs per validation and checkpointing"
 	)
 	parser.add_argument(
-		"--infer-task-id", type=str, default='',
-		help="task id to perform inference"
+		"--task-id", type=str, default='',
+		help="task id to perform inference/or extract embeddings"
 	)
 
 	parser.add_argument(
 		"--online-inference", action="store_true",
 		help="whether to do online inference, suppressing other arguments"
+	)
+	parser.add_argument(
+		"--extract-embeddings", action="store_true",
+		help="extract embeddings from saved checkpoints"
+	)
+	parser.add_argument(
+		"--from-pretrain", action="store_true",
+		help="whether to reload vocab/ckpt from pretrain model path"
+	)
+	parser.add_argument(
+		"--sample-size", type=int, default=1000,
+		help="size of extracting embeddings"
 	)
 	parser.add_argument(
 		"--ckpt", type=str, default="final",

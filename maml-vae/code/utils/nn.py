@@ -2,7 +2,6 @@ import numpy as np
 import torch
 
 # ==================================================================
-# cross_align utils
 '''
 def gumbel_softmax(logits, gamma, eps=1e-20):
 
@@ -33,7 +32,7 @@ def softmax_word(dropout, proj, embedding, gamma):
 
 		output = torch.nn.functional.dropout(output, dropout)
 		logits = proj(output)
-		prob = torch.nn.functional.softmax(logits/gamma)
+		prob = torch.nn.functional.softmax(logits/gamma, dim=1)
 		x = torch.mm(prob, embedding)
 
 		return x, logits
@@ -54,7 +53,7 @@ def argmax_word(dropout, proj, embedding):
 
 	return loop_func
 
-
+'''
 def rnn_decode(h, x, length, cell, loop_func):
 
 	h_seq, logits_seq = [], []
@@ -66,7 +65,7 @@ def rnn_decode(h, x, length, cell, loop_func):
 		logits_seq.append(logits.unsqueeze(1))
 
 	return torch.cat(h_seq, axis=1), torch.cat(logits_seq, axis=1)
-
+'''
 
 # ==================================================================
 # vae utils
@@ -87,21 +86,25 @@ def rnn_decode_with_latent_vec(h, x, length, cell, loop_func, latent_vec):
 	latent_vec = latent_vec.unsqueeze(1)
 
 	for t in range(length):
-		h_seq.append(h.view(-1, 1, cell.hidden_size))
+		
+		# h_seq.append(h.view(-1, 1, cell.hidden_size))
+		
 		output, h = cell(
 			torch.cat(
-				(x.unsqueeze(1), latent_vec), axis=-1
+				(latent_vec, x.unsqueeze(1)), axis=-1
 			), h
 		)
 		x, logits = loop_func(output.view(-1, cell.hidden_size))
 		logits_seq.append(logits.unsqueeze(1))
 
+		h_seq.append(h.view(-1, 1, cell.hidden_size))
+
 	return torch.cat(h_seq, axis=1), torch.cat(logits_seq, axis=1)
 
 
 
-def reduced_cross_entropy_loss(onehot, pred, eps=1e-20):
+def reduced_cross_entropy_loss(onehot, pred, eps=1e-8):
 
-	return -torch.mean(torch.sum(pred * torch.log(onehot + eps), axis=1))
+	return -torch.mean(torch.sum(onehot * torch.log(pred + eps), axis=1))
 
 

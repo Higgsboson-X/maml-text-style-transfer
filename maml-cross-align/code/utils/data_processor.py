@@ -22,7 +22,7 @@ def makeup_seqs(X, lengths, n):
 	return X[sample], lengths[sample]
 
 
-def get_batch_generator(seqs, lengths, batch_size, device):
+def get_batch_generator(seqs, lengths, batch_size, device, shuffle=True):
 
 	sizes = [seq.shape[0] for seq in seqs]
 	n = max(sizes)
@@ -35,16 +35,17 @@ def get_batch_generator(seqs, lengths, batch_size, device):
 	if n % batch_size:
 		num_batches += 1
 
-	batch_generator = _batch_generator(seqs, lengths, batch_size, n, num_batches, device)
+	batch_generator = _batch_generator(seqs, lengths, batch_size, n, num_batches, device, shuffle=True)
 
 	return batch_generator, num_batches
 
 
-def _batch_generator(seqs, lengths, batch_size, data_size, num_batches, device):
+def _batch_generator(seqs, lengths, batch_size, data_size, num_batches, device, shuffle=True):
 
 	b = 0
 	inds = list(range(data_size))
-	np.random.shuffle(inds)
+	if shuffle:
+		np.random.shuffle(inds)
 	while True:
 		start = b * batch_size
 		end = min(data_size, (b + 1) * batch_size)
@@ -60,8 +61,9 @@ def _batch_generator(seqs, lengths, batch_size, data_size, num_batches, device):
 		yield torch.tensor(seqs_batch, dtype=torch.int32, device=device), torch.tensor(lengths_batch, dtype=torch.int32, device=device)
 
 		if b == num_batches - 1:
-			print("shuffling ...")
-			np.random.shuffle(inds)
+			if shuffle:
+				print("shuffling ...")
+				np.random.shuffle(inds)
 			b = 0
 		else:
 			b += 1

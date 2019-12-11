@@ -1,4 +1,5 @@
 #!/bin/usr/bash/env bash
+
 for corpus in s1 s2
 do
 	echo ">>>>>>> $corpus <<<<<<<"

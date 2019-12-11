@@ -1,4 +1,5 @@
 import pickle
+import os
 import numpy as np
 
 # ----------------
@@ -42,11 +43,15 @@ def load_data(mconf, load_data=False, save=False):
 def _load_data(mconf, save=False):
 
 	vocab = utils.vocab.Vocabulary(mconf=mconf)
-	for t in range(mconf.num_tasks):
-		print("updating vocab from task {} ...".format(t+1))
-		for s in [0, 1]:
-			vocab.update_vocab(mconf.data_dir_prefix + "train/t{}.{}".format(t+1, s))
-			vocab.update_vocab(mconf.data_dir_prefix + "val/t{}.{}".format(t+1, s))
+	if os.path.exists(mconf.data_dir_prefix + "text.pretrain"):
+		print("updating vocab from {} ...".format(mconf.data_dir_prefix + "text.pretrain"))
+		vocab.update_vocab(mconf.data_dir_prefix + "text.pretrain")
+	else:
+		for t in range(mconf.num_tasks):
+			print("updating vocab from task {} ...".format(t+1))
+			for s in [0, 1]:
+				vocab.update_vocab(mconf.data_dir_prefix + "train/t{}.{}".format(t+1, s))
+				vocab.update_vocab(mconf.data_dir_prefix + "val/t{}.{}".format(t+1, s))
 
 	seqs, lengths = utils.data_processor.load_all_tasks_data(mconf, vocab, save)
 

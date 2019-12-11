@@ -1,4 +1,5 @@
 import pickle
+import os
 import numpy as np
 
 # ----------------
@@ -7,7 +8,7 @@ import utils.vocab
 
 def print_data_info(vocab, seqs, lengths, labels, bow_representations, num_tasks):
 
-	print("vocab_size = {}".format(vocab._size))
+	print("vocab_size = {}, bow_size = {}".format(vocab._size, vocab._bows))
 	for key in ["train", "val"]:
 		print("{}\n-------".format(key))
 		for t in range(num_tasks):
@@ -52,11 +53,16 @@ def load_data(mconf, load_data=False, save=False):
 def _load_data(mconf, save=False):
 
 	vocab = utils.vocab.Vocabulary(mconf=mconf)
-	for t in range(mconf.num_tasks):
-		print("updating vocab from task {} ...".format(t+1))
-		for s in [0, 1]:
-			vocab.update_vocab(mconf.data_dir_prefix + "train/t{}.{}".format(t+1, s))
-			vocab.update_vocab(mconf.data_dir_prefix + "val/t{}.{}".format(t+1, s))
+	if os.path.exists(mconf.data_dir_prefix + "text.pretrain"):
+		# directly update via predefined text
+		print("updating vocab from {} ...".format(mconf.data_dir_prefix + "text.pretrain"))
+		vocab.update_vocab(mconf.data_dir_prefix + "text.pretrain")
+	else:
+		for t in range(mconf.num_tasks):
+			print("updating vocab from task {} ...".format(t+1))
+			for s in [0, 1]:
+				vocab.update_vocab(mconf.data_dir_prefix + "train/t{}.{}".format(t+1, s))
+				vocab.update_vocab(mconf.data_dir_prefix + "val/t{}.{}".format(t+1, s))
 
 	seqs, lengths, labels, bow_representations = utils.data_processor.load_all_tasks_data(mconf, vocab, save)
 
@@ -66,15 +72,22 @@ def _load_data(mconf, save=False):
 def load_embedding_from_wdv(vocab, path):
 
 	emb_size = None
+	c = 0
 	with open(path, 'r', encoding="utf-8") as f:
 		for line in f:
 			line = line.split()
+			try:
+				assert len(line) > 2
+			except:
+				continue
 			word = line[0]
 			emb = np.array(line[1:], dtype="float32")
 			if emb_size is None:
 				emb_size = emb.shape[0]
-				embedding = np.asarray(np.random.normal(size=(vocab._size, emb_size)), dtype="float32")
+				embedding = np.asarray(np.random.uniform(size=(vocab._size, emb_size), low=-0.05, high=0.05), dtype="float32")
 			if word in vocab._word2id:
 				embedding[vocab._word2id[word]] = emb
+				c += 1
+	print("updates {} words from pretrained embeddings".format(c))
 
 	return embedding

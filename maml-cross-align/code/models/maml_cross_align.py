@@ -147,6 +147,11 @@ class MAMLCrossAlign:
 		return self.m.infer(input_sequence, lengths, src, tgt)
 
 
+	def get_batch_embeddings(self, input_sequence, lengths):
+
+		return self.m.get_batch_embeddings(input_sequence, lengths)
+
+
 	def save_model(self, path):
 
 		self.m.save_model(path)

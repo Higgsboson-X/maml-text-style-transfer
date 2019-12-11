@@ -19,36 +19,37 @@ class ModelConfig(object):
 
 		self.vocab_size = 5000
 		self.bow_size = 5000
-		self.vocab_cutoff = 7
-		self.bow_cutoff = 7
+		self.vocab_cutoff = 3
+		self.bow_cutoff = 3
 
 		self.pad_id = 0
 		self.eos_id = 1
 		self.sos_id = 2
 		self.unk_id = 3
 
-		self.filter_stopwords = True
-
 		self.embedding_size = 300
 
-		self.encoder_rnn_size = 128
-		self.decoder_rnn_size = 128
+		self.encoder_rnn_size = 256
+		self.decoder_rnn_size = 256
 
 		self.sentence_embedding_size = 2 * self.encoder_rnn_size
 
 		self.style_embedding_size = 8
-		self.content_embedding_size = self.encoder_rnn_size - self.style_embedding_size
+		self.content_embedding_size = 128
 
 		self.sequence_word_dropout = 0.1
 		self.rnn_dropout = 0.1
 		self.fc_dropout = 0.1
 
-		self.kl_anneal_iterations = 2000
+		self.kl_anneal_iterations = 20000
 		self.eps = 1e-8
 
 		# fine-tuning lr
 		self.autoencoder_train_lr = 0.001
-		self.adversarial_train_lr = 0.001
+		
+		self.content_adversarial_train_lr = 0.001
+		self.style_adversarial_train_lr = 0.001
+
 		self.style_overall_train_lr = 0.001
 
 		self.style_kl_weight = 0.03
@@ -69,6 +70,7 @@ class ModelConfig(object):
 		# requires corpus update
 
 		self.model_save_dir_prefix = "../ckpt/{}/".format(self.corpus)
+		self.emb_save_dir_prefix = "../emb/{}/".format(self.corpus)
 		self.processed_data_save_dir_prefix = "../data/{}/processed/".format(self.corpus)
 		self.data_dir_prefix = "../data/{}/".format(self.corpus)
 
@@ -84,6 +86,7 @@ class ModelConfig(object):
 	def update_corpus(self):
 
 		self.model_save_dir_prefix = "../ckpt/{}/".format(self.corpus)
+		self.emb_save_dir_prefix = "../emb/{}/".format(self.corpus)
 		self.processed_data_save_dir_prefix = "../data/{}/processed/".format(self.corpus)
 		self.data_dir_prefix = "../data/{}/".format(self.corpus)
 
@@ -97,11 +100,13 @@ class MAMLModelConfig(ModelConfig):
 		super(MAMLModelConfig, self).__init__()
 
 		self.meta_autoencoder_lr = 0.001
-		self.meta_adversarial_lr = 0.001
+		self.meta_style_adversarial_lr = 0.001
+		self.meta_content_adversarial_lr = 0.001
 		self.meta_style_overall_lr = 0.01
 
 		self.sub_autoencoder_lr = 0.001
-		self.sub_adversarial_lr = 0.001
+		self.sub_style_adversarial_lr = 0.001
+		self.sub_content_adversarial_lr = 0.001
 		self.sub_style_overall_lr = 0.01
 
 		self.num_updates = 2

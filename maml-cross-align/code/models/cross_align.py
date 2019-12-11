@@ -26,7 +26,10 @@ class CrossAlign(torch.nn.Module):
 		if init_embedding is None:
 			self.embedding = torch.nn.Embedding(self.mconf.vocab_size, self.mconf.embedding_size)
 		else:
-			self.embedding = torch.nn.Embedding.from_pretrained(init_embedding, freeze=False)
+			self.embedding = torch.nn.Embedding.from_pretrained(
+				torch.tensor(init_embedding, dtype=torch.float32), 
+				freeze=False
+			)
 
 		# projection to vocab
 		self.proj = torch.nn.Linear(self.mconf.dim_h, self.mconf.vocab_size)
@@ -122,7 +125,7 @@ class CrossAlign(torch.nn.Module):
 		)
 		_, z = self.enc_rnn(embedded_encoder_inputs, h0.unsqueeze(0))
 		# single layer, single direction
-
+		y = z.view(-1, self.mconf.dim_h)[:, :self.mconf.dim_y]
 		z = z.view(-1, self.mconf.dim_h)[:, self.mconf.dim_y:]
 
 		h_ori = torch.cat((
@@ -136,7 +139,7 @@ class CrossAlign(torch.nn.Module):
 
 		# dynamic
 		packed_embedded_decoder_inputs = torch.nn.utils.rnn.pack_padded_sequence(
-			embedded_decoder_inputs, lengths=lengths,
+			embedded_decoder_inputs, lengths=lengths + 1,
 			batch_first=True, enforce_sorted=False
 		)
 		g_outputs, _ = self.dec_rnn(packed_embedded_decoder_inputs, h_ori.unsqueeze(0))
@@ -171,7 +174,7 @@ class CrossAlign(torch.nn.Module):
 			cell=self.dec_rnn, loop_func=loop_func
 		)
 
-		return teach_h, g_logits, dec_h_tsf, dec_logits_tsf
+		return teach_h, g_logits, dec_h_tsf, dec_logits_tsf, y, z
 
 
 	def _feed_batch(self, input_sequence, lengths, gamma):
@@ -208,7 +211,7 @@ class CrossAlign(torch.nn.Module):
 					(lengths[start_src:end_src], lengths[start_tgt:end_tgt])
 				)
 
-				teach_h, g_logits, dec_h_tsf, _ = self.forward(
+				teach_h, g_logits, dec_h_tsf, _, _, _ = self.forward(
 					sub_input_sequence, lengths=sub_lengths, 
 					training=True, src=i, tgt=j, gamma=gamma
 				)
@@ -226,7 +229,7 @@ class CrossAlign(torch.nn.Module):
 
 				targets_merged = torch.nn.utils.rnn.pack_padded_sequence(
 					torch.cat((targets[start_src:end_src], targets[start_tgt:end_tgt])),
-					lengths=sub_lengths, batch_first=True, enforce_sorted=False
+					lengths=sub_lengths + 1, batch_first=True, enforce_sorted=False
 				).data.view(-1)
 
 				loss = loss_rec_fn(
@@ -241,7 +244,7 @@ class CrossAlign(torch.nn.Module):
 		return loss_rec, loss_adv, loss_ds
 
 
-	def train(self, input_sequence_all, lengths_all, batch_size, epochs, init_epoch=0):
+	def train(self, input_sequence_all, lengths_all, batch_size, epochs, init_epoch=0, pretrain=False):
 
 		# input_sequence_all is a list of sequences of the same size for all styles
 		batch_generator, num_batches = utils.data_processor.get_batch_generator(
@@ -267,6 +270,9 @@ class CrossAlign(torch.nn.Module):
 				)
 				if torch.sum(loss_ds <= self.mconf.d_loss_tolerance) == self.mconf.num_labels:
 					loss = loss_rec + self.mconf.adv_loss_weight * loss_adv + sum(loss_ds)
+				elif pretrain:
+					# only optimizer reconstruction loss
+					loss = loss_rec
 				else:
 					loss = loss_rec + sum(loss_ds)
 
@@ -293,6 +299,7 @@ class CrossAlign(torch.nn.Module):
 			print("epoch {}/{}: accumulated_loss {:g}".format(epoch + 1, epochs, epoch_loss))
 
 
+
 	def infer(self, input_sequence, lengths, src, tgt):
 
 		# src: style id for source
@@ -306,7 +313,7 @@ class CrossAlign(torch.nn.Module):
 			[torch.tensor(lengths, dtype=torch.int32, device=self.device)] * 2, 
 			axis=0
 		)
-		_, _, _, dec_logits_tsf = self.forward(
+		_, _, _, dec_logits_tsf, _, _ = self.forward(
 			input_sequence, 
 			lengths=lengths, 
 			training=False, src=src, tgt=tgt
@@ -314,6 +321,21 @@ class CrossAlign(torch.nn.Module):
 		sampled_seq = torch.argmax(dec_logits_tsf[:ori_size], axis=-1)
 
 		return sampled_seq
+
+
+	def get_batch_embeddings(self, input_sequence, lengths):
+
+		input_sequence = torch.tensor(input_sequence, dtype=torch.int32, device=self.device)
+		lengths = torch.tensor(lengths, dtype=torch.int32, device=self.device)
+		# input sequence contains half of original sequence and other half the target sequence
+		[
+			_, _, 
+			_, _, y, z
+		] = self.forward(input_sequence, lengths, training=False)
+
+		# y = style embedding, z = content embedding
+
+		return y, z
 
 
 	def save_model(self, path):
@@ -324,7 +346,7 @@ class CrossAlign(torch.nn.Module):
 
 	def load_model(self, path):
 
-		self.load_state_dict(torch.load(path))
+		self.load_state_dict(torch.load(path, map_location=self.device))
 		print("loaded model from {}".format(path))
 
 

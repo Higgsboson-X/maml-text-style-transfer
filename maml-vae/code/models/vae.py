@@ -24,11 +24,12 @@ class AdvAutoencoder(torch.nn.Module):
 		# weights
 		# embedding
 		if init_embedding is None:
-			self.encoder_embedding = torch.nn.Embedding(self.mconf.vocab_size, self.mconf.embedding_size)
-			self.decoder_embedding = torch.nn.Embedding(self.mconf.vocab_size, self.mconf.embedding_size)
-		else:
-			self.encoder_embedding = torch.nn.Embedding.from_pretrained(init_embedding, freeze=False)
-			self.decoder_embedding = torch.nn.Embedding.from_pretrained(init_embedding, freeze=False)
+			init_embedding = np.random.uniform(size=(self.mconf.vocab_size, self.mconf.embedding_size))
+			# self.encoder_embedding = torch.nn.Embedding(self.mconf.vocab_size, self.mconf.embedding_size)
+			# self.decoder_embedding = torch.nn.Embedding(self.mconf.vocab_size, self.mconf.embedding_size, _weights)
+		init_embedding = torch.tensor(init_embedding, dtype=torch.float32)
+		self.encoder_embedding = torch.nn.Embedding.from_pretrained(init_embedding, freeze=False)
+		self.decoder_embedding = torch.nn.Embedding.from_pretrained(init_embedding, freeze=False)
 
 		# encoder
 		self.encoder = torch.nn.GRU(
@@ -87,8 +88,8 @@ class AdvAutoencoder(torch.nn.Module):
 					+ list(self.content_embedding_mu_fc.parameters()) + list(self.content_embedding_sigma_fc.parameters()) \
 					+ list(self.style_multitask_pred_fc.parameters()) + list(self.content_multitask_pred_fc.parameters()) \
 					+ list(self.generative_embedding_fc.parameters()) + list(self.decoder_proj.parameters())
-		self.adversary_params = list(self.style_adversarial_mlp_fc.parameters()) + list(self.style_adversarial_pred_fc.parameters()) \
-					+ list(self.content_adversarial_mlp_fc.parameters()) + list(self.content_adversarial_pred_fc.parameters())
+		self.style_adversary_params = list(self.style_adversarial_mlp_fc.parameters()) + list(self.style_adversarial_pred_fc.parameters())
+		self.content_adversary_params = list(self.content_adversarial_mlp_fc.parameters()) + list(self.content_adversarial_pred_fc.parameters())
 
 		self.style_overall_params = list(self.style_overall_pred_fc.parameters())
 
@@ -99,7 +100,13 @@ class AdvAutoencoder(torch.nn.Module):
 
 		if training:
 			assert gamma is not None, "gamma not provided in training mode"
+			'''
 			loop_func = utils.nn.softsample_word(
+				dropout=self.mconf.rnn_dropout, proj=self.decoder_proj,
+				embedding=self.decoder_embedding.weight, gamma=gamma
+			)
+			'''
+			loop_func = utils.nn.softmax_word(
 				dropout=self.mconf.rnn_dropout, proj=self.decoder_proj,
 				embedding=self.decoder_embedding.weight, gamma=gamma
 			)
@@ -154,12 +161,6 @@ class AdvAutoencoder(torch.nn.Module):
 
 		sampled_style_embeddings = self.sample_prior(style_embeddings_mu, style_embeddings_sigma)
 
-		'''
-		print(sampled_style_embeddings.shape)
-		if style_conditioning_embeddings is not None:
-			print(style_conditioning_embeddings.shape)
-		'''
-
 		style_embeddings = sampled_style_embeddings if training else style_conditioning_embeddings
 
 		# content embeddings
@@ -192,17 +193,18 @@ class AdvAutoencoder(torch.nn.Module):
 		)
 		# print(concatenated_decoder_input.shape)
 		packed_embedded_decoder_inputs = torch.nn.utils.rnn.pack_padded_sequence(
-			concatenated_decoder_input, lengths=lengths, batch_first=True, enforce_sorted=False
+			concatenated_decoder_input, lengths=lengths + 1, batch_first=True, enforce_sorted=False
 		)
 		h0 = torch.zeros(batch_size, self.mconf.decoder_rnn_size, device=self.device)
 		g_outputs, _ = self.decoder(packed_embedded_decoder_inputs, h0.unsqueeze(0))
 		# print(g_outputs.data.shape)
-		# padded_g_outputs, _ torch.nn.utils.rnn.pad_packed_sequence(g_outputs, batch_first=True)
+		# padded_g_outputs, _ =  torch.nn.utils.rnn.pad_packed_sequence(g_outputs, batch_first=True)
 		g_outputs = torch.dropout(g_outputs.data, self.mconf.rnn_dropout, train=training)
+		# only used for reconstruction loss
 		g_logits = self.decoder_proj(g_outputs.view(-1, self.mconf.decoder_rnn_size))
 
 		# sos = torch.empty((batch_size, 1), dtype=torch.int32, device=self.device).fill_(self.mconf.sos_id)
-		go = embedded_encoder_inputs[:, 0, :]
+		go = embedded_decoder_inputs[:, 0, :]
 		# h0 = torch.zeros(batch_size, self.mconf.decoder_rnn_size, device=self.device)
 		_, dec_logits_tsf = utils.nn.rnn_decode_with_latent_vec(
 			h=h0.unsqueeze(0), x=go, length=self.mconf.max_seq_length,
@@ -250,10 +252,19 @@ class AdvAutoencoder(torch.nn.Module):
 		)
 		style_adversarial_pred = torch.nn.functional.softmax(self.style_adversarial_pred_fc(style_adversarial_mlp), dim=1)
 
+		# optimize autoencoder
 		style_adversarial_entropy = utils.nn.compute_batch_entropy(style_adversarial_pred, eps=self.mconf.eps)
+		# optimize adversarial classifier
+		'''
 		style_adversarial_loss = utils.nn.reduced_cross_entropy_loss(
 			onehot=torch.nn.functional.one_hot(torch.as_tensor(labels, dtype=torch.long, device=self.device), num_classes=self.mconf.num_labels), 
 			pred=style_adversarial_pred, eps=self.mconf.eps
+		)
+		'''
+		style_adversarial_loss = utils.nn.reduced_cross_entropy_loss(
+			onehot=torch.nn.functional.one_hot(torch.as_tensor(labels, dtype=torch.long, device=self.device), num_classes=self.mconf.num_labels), 
+			pred=torch.nn.functional.softmax(style_adversarial_pred, dim=1), 
+			eps=self.mconf.eps
 		)
 
 		# content adversary
@@ -263,9 +274,18 @@ class AdvAutoencoder(torch.nn.Module):
 		)
 		content_adversarial_pred = torch.nn.functional.softmax(self.content_adversarial_pred_fc(content_adversarial_mlp), dim=1)
 
+		# optimize autoencoder
 		content_adversarial_entropy = utils.nn.compute_batch_entropy(content_adversarial_pred, eps=self.mconf.eps)
+		# optmize adversarial classifier
+		'''
 		content_adversarial_loss = utils.nn.reduced_cross_entropy_loss(
 			onehot=bow_representations, pred=content_adversarial_pred, eps=self.mconf.eps
+		)
+		'''
+		content_adversarial_loss = utils.nn.reduced_cross_entropy_loss(
+			onehot=bow_representations, 
+			pred=torch.nn.functional.softmax(content_adversarial_pred, dim=1), 
+			eps=self.mconf.eps
 		)
 
 		# multitask loss
@@ -275,14 +295,18 @@ class AdvAutoencoder(torch.nn.Module):
 		)
 		style_multitask_loss = utils.nn.reduced_cross_entropy_loss(
 			onehot=torch.nn.functional.one_hot(torch.as_tensor(labels, dtype=torch.long, device=self.device), num_classes=self.mconf.num_labels),
-			pred=style_multitask_pred, eps=self.mconf.eps
+			pred=torch.nn.functional.softmax(style_multitask_pred, dim=1), 
+			eps=self.mconf.eps
 		)
+
 		content_multitask_pred = torch.dropout(
-			torch.nn.functional.softmax(self.content_multitask_pred_fc(content_embeddings_mu), dim=1),
+			torch.nn.functional.leaky_relu(self.content_multitask_pred_fc(content_embeddings_mu)),
 			p=self.mconf.fc_dropout, train=True
 		)
 		content_multitask_loss = utils.nn.reduced_cross_entropy_loss(
-			onehot=bow_representations, pred=content_multitask_pred, eps=self.mconf.eps
+			onehot=bow_representations, 
+			pred=torch.nn.functional.softmax(content_multitask_pred, dim=1), 
+			eps=self.mconf.eps
 		)
 
 		# kl loss
@@ -290,23 +314,30 @@ class AdvAutoencoder(torch.nn.Module):
 		content_kl_loss = utils.nn.calc_kl_loss(content_embeddings_mu, content_embeddings_sigma)
 
 		# reconstruction loss
-		seq_cel_fn = torch.nn.CrossEntropyLoss(reduction="none")
+		seq_cel_fn = torch.nn.CrossEntropyLoss(reduction="mean")
 		packed_targets = torch.nn.utils.rnn.pack_padded_sequence(
-			torch.as_tensor(targets, dtype=torch.long, device=self.device), lengths=lengths,
+			torch.as_tensor(targets, dtype=torch.long, device=self.device), lengths=lengths + 1,
 			batch_first=True, enforce_sorted=False
 		).data.view(-1)
 		reconstruction_loss = seq_cel_fn(
 			target=packed_targets,
 			input=g_logits
 		)
-		reconstruction_loss = torch.sum(reconstruction_loss) / float(batch_size)
+		# reconstruction_loss = torch.sum(reconstruction_loss) / float(batch_size)
 
 		# style overall prediction loss
+		'''
 		style_overall_pred_loss = seq_cel_fn(
 			target=torch.as_tensor(labels, dtype=torch.long, device=self.device),
 			input=style_overall_pred
 		)
-		style_overall_pred_loss = torch.sum(style_overall_pred_loss) / float(batch_size)
+		'''
+		# style_overall_pred_loss = torch.sum(style_overall_pred_loss) / float(batch_size)
+		style_overall_pred_loss = utils.nn.reduced_cross_entropy_loss(
+			onehot=torch.nn.functional.one_hot(torch.as_tensor(labels, dtype=torch.long, device=self.device), num_classes=self.mconf.num_labels),
+			pred=torch.nn.functional.softmax(style_overall_pred, dim=1), 
+			eps=self.mconf.eps
+		)
 
 		losses = [
 			reconstruction_loss,
@@ -332,6 +363,105 @@ class AdvAutoencoder(torch.nn.Module):
 		return (np.tanh(
 				(iterations - self.mconf.kl_anneal_iterations*1.5) / (self.mconf.kl_anneal_iterations/3)
 			) + 1) * weight
+
+
+	def pretrain(self, input_sequences_all, lengths_all, batch_size=32, epochs=5, init_epoch=0):
+
+		batch_generator, num_batches = utils.data_processor.get_pretrain_batch_generator(
+			input_sequences_all, lengths_all, batch_size, device=self.device
+		)
+		gamma = self.mconf.gamma_init
+
+		autoencoder_params = list(self.encoder_embedding.parameters()) + list(self.decoder_embedding.parameters()) \
+					+ list(self.encoder.parameters()) + list(self.decoder.parameters()) \
+					+ list(self.style_embedding_mu_fc.parameters()) + list(self.style_embedding_sigma_fc.parameters()) \
+					+ list(self.content_embedding_mu_fc.parameters()) + list(self.content_embedding_sigma_fc.parameters()) \
+					+ list(self.generative_embedding_fc.parameters()) + list(self.decoder_proj.parameters())
+		
+		autoencoder_optimizer = torch.optim.Adam(
+			params=autoencoder_params, lr=self.mconf.autoencoder_train_lr, betas=self.mconf.betas
+		)
+		for param in self.style_adversary_params + self.content_adversary_params + self.style_overall_params:
+			param.requires_grad = False
+
+		seq_cel_fn = torch.nn.CrossEntropyLoss(reduction="mean")
+
+		iterations = 0
+		style_kl_weight, content_kl_weight = 0., 0.
+		for epoch in range(init_epoch, epochs):
+			autoencoder_epoch_loss = 0.
+			
+			for b in range(num_batches):
+				# debug
+				# if b == 1:
+				# 	break
+
+				iterations += 1
+
+				if iterations < self.mconf.kl_anneal_iterations:
+					style_kl_weight = self.get_annealed_weight(iterations, self.mconf.style_kl_weight)
+					content_kl_weight = self.get_annealed_weight(iterations, self.mconf.content_kl_weight)
+
+				input_sequences_batch, lengths_batch = batch_generator.__next__()
+				actual_batch_size = lengths_batch.size(0)
+				targets_batch = torch.cat((
+						input_sequences_batch.clone(), torch.empty((actual_batch_size, 1), dtype=torch.int32, device=self.device).fill_(self.mconf.pad_id)
+					), axis=-1
+				)
+				targets_batch[range(actual_batch_size), lengths_batch.cpu().numpy()] = self.mconf.eos_id
+
+				[
+					style_embeddings_mu, style_embeddings_sigma, style_embeddings,
+					content_embeddings_mu, content_embeddings_sigma, content_embeddings,
+					generative_embeddings, g_logits, dec_logits_tsf, style_overall_pred
+				] = self.forward(input_sequences_batch, lengths_batch, training=True, gamma=gamma)
+
+				style_kl_loss = utils.nn.calc_kl_loss(style_embeddings_mu, style_embeddings_sigma)
+				content_kl_loss = utils.nn.calc_kl_loss(content_embeddings_mu, content_embeddings_sigma)
+
+				packed_targets = torch.nn.utils.rnn.pack_padded_sequence(
+					torch.as_tensor(targets_batch, dtype=torch.long, device=self.device), lengths=lengths_batch + 1,
+					batch_first=True, enforce_sorted=False
+				).data.view(-1)
+
+				reconstruction_loss = seq_cel_fn(
+					target=packed_targets,
+					input=g_logits
+				)
+				# reconstruction_loss /= float(actual_batch_size)
+
+				composite_loss = reconstruction_loss + style_kl_weight * style_kl_loss + content_kl_weight * content_kl_weight
+
+				autoencoder_optimizer.zero_grad()
+				composite_loss.backward()
+				torch.nn.utils.clip_grad_norm_(autoencoder_params, self.mconf.grad_clip)
+				autoencoder_optimizer.step()
+
+				autoencoder_epoch_loss += composite_loss.item()
+
+				timestamp = dt.datetime.now().isoformat()
+				msg = "[{}]: batch {}/{}, epoch {}/{}, reconstruction_loss {:g}, composite_loss {:g}".format(
+					timestamp, b + 1, num_batches, epoch + 1, epochs, 
+					reconstruction_loss.item(), composite_loss.item(),
+				)
+				msg += "\n\t style_kl_loss {:g}, content_kl_loss {:g}".format(
+					style_kl_weight * style_kl_loss.item(), 
+					content_kl_weight * content_kl_loss.item()
+				)
+				print(msg)
+
+			gamma = max(self.mconf.gamma_min, gamma * self.mconf.gamma_decay)
+
+			print("-------")
+			print("epoch {}/{}: autoencoder_epoch_loss {:g}".format(
+				epoch + 1, epochs, autoencoder_epoch_loss
+			))
+			print("\tgamma = {:g}, style_kl_weight = {:g}, content_kl_weight = {:g}".format(
+				gamma, style_kl_weight, content_kl_weight
+			))
+
+		for param in self.parameters():
+			param.requires_grad = True
 
 
 	def train(self, input_sequences_all, lengths_all, labels_all, bow_representations_all, batch_size=32, epochs=5, init_epoch=0):
@@ -365,8 +495,11 @@ class AdvAutoencoder(torch.nn.Module):
 		autoencoder_optimizer = torch.optim.Adam(
 			params=self.autoencoder_params, lr=self.mconf.autoencoder_train_lr, betas=self.mconf.betas
 		)
-		adversary_optimizer = torch.optim.RMSprop(
-			params=self.adversary_params, lr=self.mconf.adversarial_train_lr
+		style_adversary_optimizer = torch.optim.RMSprop(
+			params=self.style_adversary_params, lr=self.mconf.style_adversarial_train_lr
+		)
+		content_adversary_optimizer = torch.optim.RMSprop(
+			params=self.content_adversary_params, lr=self.mconf.content_adversarial_train_lr
 		)
 		style_overall_optimizer = torch.optim.RMSprop(
 			params=self.style_overall_params, lr=self.mconf.style_overall_train_lr
@@ -422,11 +555,12 @@ class AdvAutoencoder(torch.nn.Module):
 						- self.mconf.content_adv_loss_weight * content_adversarial_entropy
 
 				autoencoder_optimizer.zero_grad()
-				adversary_optimizer.zero_grad()
+				style_adversary_optimizer.zero_grad()
+				content_adversary_optimizer.zero_grad()
 				style_overall_optimizer.zero_grad()
 
 				# do not propagate loss to unrelated parameters
-				for param in self.adversary_params + self.style_overall_params:
+				for param in self.style_adversary_params + self.content_adversary_params + self.style_overall_params:
 					param.requires_grad = False
 				for param in self.autoencoder_params:
 					param.requires_grad = True
@@ -434,26 +568,27 @@ class AdvAutoencoder(torch.nn.Module):
 				
 				for param in self.autoencoder_params + self.style_overall_params:
 					param.requires_grad = False
-				for param in self.adversary_params:
+				for param in self.style_adversary_params + self.content_adversary_params:
 					param.requires_grad = True
 				style_adversarial_loss.backward(retain_graph=True)
 				content_adversarial_loss.backward(retain_graph=True)
 				
-				for param in self.autoencoder_params + self.adversary_params:
+				for param in self.autoencoder_params + self.style_adversary_params + self.content_adversary_params:
 					param.requires_grad = False
 				for param in self.style_overall_params:
 					param.requires_grad = True
 				style_overall_pred_loss.backward(retain_graph=True)
 
 				# reset to default
-				for param in self.autoencoder_params + self.adversary_params + self.style_overall_params:
+				for param in self.autoencoder_params + self.style_adversary_params + self.content_adversary_params + self.style_overall_params:
 					param.requires_grad = True
 
 				# grad clip for all parameters
 				torch.nn.utils.clip_grad_norm_(self.parameters(), self.mconf.grad_clip)
 
 				autoencoder_optimizer.step()
-				adversary_optimizer.step()
+				style_adversary_optimizer.step()
+				content_adversary_optimizer.step()
 				style_overall_optimizer.step()
 
 				autoencoder_epoch_loss += composite_loss.item()
@@ -461,12 +596,17 @@ class AdvAutoencoder(torch.nn.Module):
 				style_overall_epoch_loss += style_overall_pred_loss.item()
 
 				timestamp = dt.datetime.now().isoformat()
-				msg = "[{}]: batch {}/{}, epoch {}/{}, loss_vae {:g}, style_adversarial_loss {:g}, content_adversarial_loss {:g}".format(
+				msg = "[{}]: batch {}/{}, epoch {}/{}, style_adversarial_loss {:g}, content_adversarial_loss {:g}".format(
 					timestamp, b + 1, num_batches, epoch + 1, epochs, 
-					composite_loss.item(), style_adversarial_loss.item(), content_adversarial_loss.item(),
+					style_adversarial_loss.item(), content_adversarial_loss.item(),
+				)
+				msg += "\n\t loss_vae {:g}, style_adversarial_entropy {:g}, content_adversarial_entropy {:g}".format(
+					composite_loss.item(), style_adversarial_entropy.item(), content_adversarial_entropy.item(),
 				)
 				msg += "\n\t reconstruction_loss {:g}, style_kl_loss {:g}, content_kl_loss {:g}".format(
-					reconstruction_loss.item(), style_kl_loss.item(), content_kl_loss.item()
+					reconstruction_loss.item(), 
+					style_kl_weight * style_kl_loss.item(), 
+					content_kl_weight * content_kl_loss.item()
 				)
 				msg += "\n\t style_multitask_loss {:g}, content_multitask_loss {:g}, style_overall_pred_loss {:g}".format(
 					style_multitask_loss.item(), content_multitask_loss.item(), style_overall_pred_loss.item()
@@ -479,22 +619,38 @@ class AdvAutoencoder(torch.nn.Module):
 			print("epoch {}/{}: autoencoder_epoch_loss {:g}, adversarial_epoch_loss {:g}, style_overall_epoch_loss {:g}".format(
 				epoch + 1, epochs, autoencoder_epoch_loss, style_overall_epoch_loss, adversarial_epoch_loss
 			))
+			print("\tgamma = {:g}, style_kl_weight = {:g}, content_kl_weight = {:g}".format(
+				gamma, style_kl_weight, content_kl_weight
+			))
 
-	def get_batch_style_embeddings(self, input_sequences, lengths):
+	def get_batch_embeddings(self, input_sequences, lengths, batch_size=64):
 
-		input_sequences = torch.tensor(input_sequences, dtype=torch.int32, device=self.device)
-		lengths = torch.tensor(lengths, dtype=torch.int32, device=self.device)
+		# input_sequences = torch.tensor(input_sequences, dtype=torch.int32, device=self.device)
+		# lengths = torch.tensor(lengths, dtype=torch.int32, device=self.device)
 
-		[
-			_, _, style_embeddings,
-			_, _, _,
-			_, _, _, _
-		] = self.forward(
-			input_sequences=input_sequences, lengths=lengths,
-			training=True, style_conditioning_embeddings=None, gamma=self.mconf.gamma_init
+		batch_generator, num_batches = utils.data_processor.get_pretrain_batch_generator(
+			input_sequences, lengths, batch_size, device=self.device, shuffle=False
 		)
 
-		return style_embeddings
+		style_embeddings_all = []
+		content_embeddings_all = []
+
+		for b in range(num_batches):
+			batch = batch_generator.__next__()
+
+			[
+				style_embeddings_mu, _, _,
+				content_embeddings_mu, _, _,
+				_, _, _, _
+			] = self.forward(
+				input_sequences=batch[0], lengths=batch[1],
+				training=True, style_conditioning_embeddings=None, gamma=self.mconf.gamma_init
+			)
+
+			style_embeddings_all.append(style_embeddings_mu)
+			content_embeddings_all.append(content_embeddings_mu)
+
+		return torch.cat(content_embeddings_all, axis=0), torch.cat(style_embeddings_all, axis=0)
 
 
 	def infer(self, input_sequences, lengths, style_conditioning_embedding):
@@ -533,6 +689,6 @@ class AdvAutoencoder(torch.nn.Module):
 
 	def load_model(self, path):
 
-		self.load_state_dict(torch.load(path))
+		self.load_state_dict(torch.load(path, map_location=self.device))
 		print("loaded model from {}".format(path))
 

@@ -56,8 +56,8 @@ class Vocabulary:
 			if sentences % 5000 == 0:
 				print("word: " + str(added) + ", lines: " + str(sentences))
 			for word in line:
-				if word in self.filter_list or word in self._id2word:
-					pass
+				if word in self.filter_list or word in self._word2id:
+					continue
 				if word not in words:
 					words[word] = 1
 					added += 1

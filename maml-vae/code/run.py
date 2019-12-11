@@ -13,7 +13,7 @@ import models.maml_vae
 import utils.data_loader
 import utils.data_processor
 
-def _train_maml(net, mconf, seqs, lengths, labels, bows, vocab, total_epochs=10, epochs_per_val=2, support_batch_size=32, query_batch_size=8):
+def _train_maml(net, mconf, seqs, lengths, labels, bows, vocab, total_epochs=10, epochs_per_val=2, support_batch_size=32, query_batch_size=8, dump_embeddings=False):
 
 	print("maml learning ...")
 	turns = total_epochs // epochs_per_val
@@ -44,7 +44,7 @@ def _train_maml(net, mconf, seqs, lengths, labels, bows, vocab, total_epochs=10,
 		print("evaluation\n-------")
 		for t in range(mconf.num_tasks):
 			print("inferring task {} ...".format(t+1))
-			style_embeddings = net.get_batch_style_embeddings(
+			content_embeddings, style_embeddings = net.get_batch_embeddings(
 				input_sequences=np.concatenate(seqs["val"][t], axis=0),
 				lengths=np.concatenate(lengths["val"][t], axis=0)
 			)
@@ -52,6 +52,27 @@ def _train_maml(net, mconf, seqs, lengths, labels, bows, vocab, total_epochs=10,
 				torch.mean(style_embeddings[:lengths["val"][t][0].shape[0]], axis=0),
 				torch.mean(style_embeddings[lengths["val"][t][0].shape[0]:], axis=0)
 			]
+			if dump_embeddings:
+
+				style_embeddings = style_embeddings.cpu().detach().numpy()
+				content_embeddings = content_embeddings.cpu().detach().numpy()
+
+				style_embeddings = [
+					style_embeddings[:lengths["val"][t][0].shape[0]], 
+					style_embeddings[lengths["val"][t][0].shape[0]:]
+				]
+				content_embeddings = [
+					content_embeddings[:lengths["val"][t][0].shape[0]],
+					content_embeddings[lengths["val"][t][0].shape[0]:]
+				]
+				with open(mconf.emb_save_dir_prefix + "t{}/epoch-{}.maml.emb".format(t+1, end_epoch), "wb") as f:
+					embeddings = {
+						"style": style_embeddings,
+						"content": content_embeddings
+					}
+					pickle.dump(embeddings, f)
+					print("dumped embeddings to {}t{}/epoch-{}.maml.emb".format(mconf.emb_save_dir_prefix, t+1, end_epoch))
+
 			for s in [0, 1]:
 				inferred_seqs, style_preds = net.infer(
 					seqs["val"][t][s], lengths["val"][t][s],
@@ -64,7 +85,7 @@ def _train_maml(net, mconf, seqs, lengths, labels, bows, vocab, total_epochs=10,
 				print("\t{}: ".format(s), inferred_seqs.shape)
 
 
-def _fine_tune(net, mconf, seqs, lengths, labels, bows, vocab, total_epochs=6, epochs_per_val=2, batch_size=64, task_id=1):
+def _fine_tune(net, mconf, seqs, lengths, labels, bows, vocab, total_epochs=6, epochs_per_val=2, batch_size=64, task_id=1, dump_embeddings=False):
 
 	print("transfer learning ...")
 	turns = total_epochs // epochs_per_val
@@ -89,7 +110,7 @@ def _fine_tune(net, mconf, seqs, lengths, labels, bows, vocab, total_epochs=6, e
 		mconf.last_tsf_ckpts["t{}".format(task_id)] = model_file
 		print("evaluation\n-------")
 		print("inferring ...")
-		style_embeddings = net.get_batch_style_embeddings(
+		content_embeddings, style_embeddings = net.get_batch_embeddings(
 			input_sequences=np.concatenate(seqs["val"], axis=0), 
 			lengths=np.concatenate(lengths["val"], axis=0)
 		)
@@ -97,6 +118,26 @@ def _fine_tune(net, mconf, seqs, lengths, labels, bows, vocab, total_epochs=6, e
 			torch.mean(style_embeddings[:lengths["val"][0].shape[0]], axis=0),
 			torch.mean(style_embeddings[lengths["val"][0].shape[0]:], axis=0)
 		]
+		if dump_embeddings:
+			
+			style_embeddings = style_embeddings.cpu().detach().numpy()
+			content_embeddings = content_embeddings.cpu().detach().numpy()
+
+			style_embeddings = [
+				style_embeddings[:lengths["val"][0].shape[0]], 
+				style_embeddings[lengths["val"][0].shape[0]:]
+			]
+			content_embeddings = [
+				content_embeddings[:lengths["val"][0].shape[0]],
+				content_embeddings[lengths["val"][0].shape[0]:]
+			]
+			with open(mconf.emb_save_dir_prefix + "t{}/epoch-{}.transfer.emb".format(task_id, end_epoch), "wb") as f:
+				embeddings = {
+					"style": style_embeddings,
+					"content": content_embeddings
+				}
+				pickle.dump(embeddings, f)
+				print("dumped embeddings to {}t{}/epoch-{}.transfer.emb".format(mconf.emb_save_dir_prefix, task_id, end_epoch))
 		for s in [0, 1]:
 			inferred_seqs, style_preds = net.infer(
 				seqs["val"][s], lengths["val"][s],
@@ -109,13 +150,13 @@ def _fine_tune(net, mconf, seqs, lengths, labels, bows, vocab, total_epochs=6, e
 			print("\t{}: ".format(s), inferred_seqs.shape)
 
 
-def run_maml(mconf, device, load_data=False, load_model=False, maml_epochs=10, transfer_epochs=6, epochs_per_val=2, infer_task='', maml_batch_size=8, sub_batch_size=32, train_batch_size=64):
+def run_maml(mconf, device, load_data=False, load_model=False, maml_epochs=10, transfer_epochs=6, epochs_per_val=2, infer_task='', maml_batch_size=8, sub_batch_size=32, train_batch_size=64, dump_embeddings=False):
 
 	if maml_epochs > 0 or transfer_epochs > 0:
 		print("loading data ...")
 		vocab, seqs, lengths, labels, bows = utils.data_loader.load_data(mconf=mconf, load_data=load_data, save=(not load_data))
 		utils.data_loader.print_data_info(vocab, seqs, lengths, labels, bows, mconf.num_tasks)
-	else:
+	elif infer_task != '':
 		print("inference mode")
 		with open(mconf.processed_data_save_dir_prefix + "{}t/vocab".format(mconf.num_tasks), "rb") as f:
 			vocab = pickle.load(f)
@@ -123,11 +164,16 @@ def run_maml(mconf, device, load_data=False, load_model=False, maml_epochs=10, t
 		mconf.vocab_size = vocab._size
 		mconf.bow_size = vocab._bows
 
+	else:
+		print("no operation, exiting ...")
+		exit(0)
+
 	printer = pprint.PrettyPrinter(indent=4)
 	print(">>>>>>> Model Config <<<<<<<")
 	printer.pprint(vars(mconf))
 
-	if mconf.wordvec_path is None:
+	if mconf.wordvec_path is None or (maml_epochs <= 0 or transfer_epochs <= 0) or load_model:
+		# will be loading model parameters
 		init_embedding = None
 	else:
 		print("loading initial embedding from {} ...".format(mconf.wordvec_path))
@@ -163,10 +209,16 @@ def run_maml(mconf, device, load_data=False, load_model=False, maml_epochs=10, t
 		_train_maml(
 			net, mconf, maml_seqs, maml_lengths, maml_labels, maml_bows, vocab=vocab,
 			total_epochs=maml_epochs, epochs_per_val=epochs_per_val,
-			support_batch_size=sub_batch_size, query_batch_size=maml_batch_size
+			support_batch_size=sub_batch_size, query_batch_size=maml_batch_size, dump_embeddings=dump_embeddings
 		)
+		model_file = "epoch-{}.maml".format(maml_epochs)
+		model_path = mconf.model_save_dir_prefix + model_file
+		net.save_model(model_path)
+		mconf.last_ckpt = model_file
+		mconf.last_maml_ckpt = model_file
 	if transfer_epochs > 0:
 		for t in mconf.tsf_tasks:
+			net.load_model(mconf.model_save_dir_prefix + mconf.last_maml_ckpt)
 			transfer_seqs = {
 			"train": seqs["train"][t-1],
 			"val": seqs["val"][t-1]
@@ -186,14 +238,21 @@ def run_maml(mconf, device, load_data=False, load_model=False, maml_epochs=10, t
 			_fine_tune(
 				net, mconf, transfer_seqs, transfer_lengths, transfer_labels, transfer_bows, vocab=vocab,
 				total_epochs=transfer_epochs, epochs_per_val=epochs_per_val,
-				batch_size=train_batch_size, task_id=t
+				batch_size=train_batch_size, task_id=t, dump_embeddings=dump_embeddings
 			)
+			model_file = "epoch-{}.t{}".format(transfer_epochs, t)
+			model_path = mconf.model_save_dir_prefix + model_file
+			net.save_model(model_path)
+			mconf.last_ckpt = model_file
+			mconf.last_tsf_ckpts["t{}".format(t)] = model_file
 	
+	'''
 	if maml_epochs > 0 or transfer_epochs > 0:
 		model_file = dt.datetime.now().strftime("%Y%m%d%H%M")
 		model_path = mconf.model_save_dir_prefix + model_file
 		net.save_model(model_path)
 		mconf.last_ckpt = model_file
+	'''
 
 	if infer_task != '':
 		infer_task = int(infer_task)
@@ -206,7 +265,8 @@ def run_maml(mconf, device, load_data=False, load_model=False, maml_epochs=10, t
 		infer_lengths = [l0, l1]
 		infer_labels = [lb0, lb1]
 		infer_bows = [bow0, bow1]
-		style_embeddings = net.get_batch_style_embeddings(
+
+		content_embeddings, style_embeddings = net.get_batch_embeddings(
 			input_sequences=np.concatenate(infer_seqs, axis=0), 
 			lengths=np.concatenate(infer_lengths, axis=0)
 		)
@@ -214,6 +274,27 @@ def run_maml(mconf, device, load_data=False, load_model=False, maml_epochs=10, t
 			torch.mean(style_embeddings[:infer_lengths[0].shape[0]], axis=0),
 			torch.mean(style_embeddings[infer_lengths[0].shape[0]:], axis=0)
 		]
+
+		if dump_embeddings:
+
+			style_embeddings = style_embeddings.cpu().detach().numpy()
+			content_embeddings = content_embeddings.cpu().detach().numpy()
+
+			style_embeddings = [
+				style_embeddings[:infer_lengths[0].shape[0]], 
+				style_embeddings[infer_lengths[0].shape[0]:]
+			]
+			content_embeddings = [
+				content_embeddings[:infer_lengths[0].shape[0]],
+				content_embeddings[infer_lengths[0].shape[0]:]
+			]
+			with open(mconf.emb_save_dir_prefix + "t{}/infer.emb".format(infer_task), "wb") as f:
+				embeddings = {
+					"style": style_embeddings,
+					"content": content_embeddings
+				}
+				pickle.dump(embeddings, f)
+				print("dumped embeddings to {}".format(mconf.emb_save_dir_prefix + "t{}/infer.emb".format(infer_task)))
 		for s in [0, 1]:
 			inferred_seqs, style_preds = net.infer(
 				infer_seqs[s], infer_lengths[s],
@@ -243,7 +324,7 @@ def run_online_inference(mconf, ckpt, tgt_file, device):
 	model_path = mconf.model_save_dir_prefix + ckpt
 	net.load_model(model_path)
 
-	style_embeddings = net.get_batch_style_embeddings(
+	_, style_embeddings = net.get_batch_embeddings(
 		input_sequences=seqs, 
 		lengths=lengths
 	)
@@ -265,4 +346,59 @@ def run_online_inference(mconf, ckpt, tgt_file, device):
 		)
 		tsf = vocab.decode_sents(tsf)
 		print("[tsf]: {} (pred = {})".format(tsf[0], pred[0].item()))
+
+
+
+def extract_embeddings(mconf, ckpt, task_id, device, pretrain=False, sample_size=1000):
+
+	net = models.maml_vae.MAMLAdvAutoencoder(
+		device=device, num_tasks=mconf.num_tasks,
+		mconf=mconf
+	)
+
+	model_path = mconf.model_save_dir_prefix + ckpt
+	net.load_model(model_path)
+
+	if pretrain:
+		dir_prefix = mconf.processed_data_save_dir_prefix + "pretrain/"
+	else:
+		dir_prefix = mconf.processed_data_save_dir_prefix + "{}t/".format(mconf.num_tasks)
+
+	with open(dir_prefix + "vocab", "rb") as f:
+		vocab = pickle.load(f)
+
+	with open(dir_prefix + "t{}.val".format(task_id), "rb") as f:
+		data = pickle.load(f)
+		s0, s1 = data["s0"], data["s1"]
+		l0, l1 = data["l0"], data["l1"]
+		lb0, lb1 = data["lb0"], data["lb1"]
+		bow0, bow1 = data["bow0"], data["bow1"]
+
+	inds0 = np.random.choice(list(range(l0.shape[0])), sample_size)
+	inds1 = np.random.choice(list(range(l1.shape[0])), sample_size)
+
+	content_embeddings, style_embeddings = net.get_batch_embeddings(
+		input_sequences=np.concatenate([s0[inds0], s1[inds1]], axis=0),
+		lengths=np.concatenate([l0[inds0], l1[inds1]], axis=0)
+	)
+
+	style_embeddings = style_embeddings.cpu().detach().numpy()
+	content_embeddings = content_embeddings.cpu().detach().numpy()
+
+	style_embeddings = [
+		style_embeddings[:l0.shape[0]],
+		style_embeddings[l0.shape[0]:]
+	]
+	content_embeddings = [
+		content_embeddings[:l0.shape[0]],
+		content_embeddings[l0.shape[0]:]
+	]
+
+	with open(mconf.emb_save_dir_prefix + "t{}/extract.emb".format(task_id), "wb") as f:
+		embeddings = {
+			"style": style_embeddings,
+			"content": content_embeddings
+		}
+		pickle.dump(embeddings, f)
+		print("dumped embeddings to {}t{}/extract.emb".format(mconf.emb_save_dir_prefix, task_id))
 

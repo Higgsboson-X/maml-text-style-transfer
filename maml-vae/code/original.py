@@ -1,4 +1,5 @@
 import sys
+import os
 import json
 import pprint
 import pickle
@@ -47,16 +48,28 @@ def load_args():
 		help="batch size for training"
 	)
 	parser.add_argument(
-		"--epochs", type=int, default=20,
+		"--pretrain-epochs", type=int, default=0,
+		help="epochs for pretraining vae"
+	)
+	parser.add_argument(
+		"--epochs", type=int, default=0,
 		help="training epochs"
 	)
 	parser.add_argument(
-		"--epochs-per-val", type=int, default=5,
+		"--epochs-per-val", type=int, default=1,
 		help="epochs per validation and checkpointing"
+	)
+	parser.add_argument(
+		"--dump-embeddings", action="store_true",
+		help="whether to dump content and style embeddings in validation"
 	)
 	parser.add_argument(
 		"--inference", action="store_true",
 		help="whether to perform inference"
+	)
+	parser.add_argument(
+		"--from-pretrain", action="store_true",
+		help="whether to load data from pretrain folder"
 	)
 
 	parser.add_argument(
@@ -114,10 +127,14 @@ def build_mconf_from_args(args):
 
 
 # ======================================================================================
-def run_online_inference(mconf, ckpt, tgt_file, device, task_id):
+def run_online_inference(mconf, ckpt, tgt_file, device, task_id, from_pretrain=False):
 
-	with open(mconf.processed_data_save_dir_prefix + "1t/t{}.vocab".format(task_id), "rb") as f:
-		vocab = pickle.load()
+	if from_pretrain:
+		with open(mconf.processed_data_save_dir_prefix + "pretrain/t{}.vocab".format(task_id), "rb") as f:
+			vocab = pickle.load(f)
+	else:
+		with open(mconf.processed_data_save_dir_prefix + "1t/t{}.vocab".format(task_id), "rb") as f:
+			vocab = pickle.load()
 
 	seqs, lengths, _, _ = utils.data_processor.get_seq_data_from_file(
 		filename=tgt_file, vocab=vocab, mconf=mconf
@@ -127,7 +144,7 @@ def run_online_inference(mconf, ckpt, tgt_file, device, task_id):
 	model_path = mconf.model_save_dir_prefix + ckpt
 	net.load_model(model_path)
 
-	style_embeddings = net.get_batch_style_embeddings(
+	_, style_embeddings = net.get_batch_embeddings(
 		input_sequences=seqs, 
 		lengths=lengths
 	)
@@ -152,29 +169,79 @@ def run_online_inference(mconf, ckpt, tgt_file, device, task_id):
 
 
 
-def run_vae(mconf, device, load_data=False, load_model=False, epochs=20, epochs_per_val=5, inference=False, batch_size=64, task_id=1):
+def run_vae(mconf, device, load_data=False, load_model=False, epochs=20, pretrain_epochs=5, epochs_per_val=5, inference=False, batch_size=64, task_id=1, dump_embeddings=False, from_pretrain=False):
 
 	# --------------------------------------------------------------
-	if epochs > 0:
+	if pretrain_epochs > 0:
+		if os.path.exists(mconf.processed_data_save_dir_prefix + "pretrain"):
+			print("loading processed pretrain data from {} ...".format(mconf.processed_data_save_dir_prefix + "pretrain"))
+			with open(mconf.processed_data_save_dir_prefix + "pretrain/vocab", "rb") as f:
+				vocab = pickle.load(f)
+			with open(mconf.processed_data_save_dir_prefix + "pretrain/data", "rb") as f:
+				data = pickle.load(f)
+				pretrain_seqs, pretrain_lengths = data["seqs"], data["lengths"]
+		else:
+			pretrain_file_path = mconf.data_dir_prefix + "text.pretrain"
+			assert os.path.exists(pretrain_file_path), "text.pretrain not provided"
+			os.makedirs(mconf.processed_data_save_dir_prefix + "pretrain")
+
+			vocab = utils.vocab.Vocabulary(mconf=mconf)
+			print("updating vocab from {} ...".format(pretrain_file_path))
+			vocab.update_vocab(pretrain_file_path)
+
+			with open(mconf.processed_data_save_dir_prefix + "pretrain/vocab", "wb") as f:
+				pickle.dump(vocab, f)
+
+			print("loading pretrain data from {} ...".format(pretrain_file_path))
+
+			# label argument is not used
+			pretrain_seqs, pretrain_lengths, _, _ = utils.data_processor.get_seq_data_from_file(
+				filename=pretrain_file_path, vocab=vocab, mconf=mconf, label=0
+			)
+			data = {"seqs": pretrain_seqs, "lengths": pretrain_lengths}
+			with open(mconf.processed_data_save_dir_prefix + "pretrain/data", "wb") as f:
+				pickle.dump(data, f)
+
+		mconf.vocab_size = vocab._size
+		mconf.bow_size = vocab._bows
+
+	if epochs > 0 or pretrain_epochs > 0:
+
+		if pretrain_epochs > 0:
+			dir_prefix = mconf.processed_data_save_dir_prefix + "pretrain/"
+		else:
+			dir_prefix = mconf.processed_data_save_dir_prefix + "1t/"
 		
 		print("loading data ...")
 		if load_data:
-			with open(mconf.processed_data_save_dir_prefix + "1t/t{}.vocab".format(task_id), "rb") as f:
-				vocab = pickle.load(f)
+			if pretrain_epochs <= 0:
+				with open(mconf.processed_data_save_dir_prefix + "1t/t{}.vocab".format(task_id), "rb") as f:
+					vocab = pickle.load(f)
+			# if pretrain, then vocab should be ready
 			seqs, lengths, labels, bow_representations = {}, {}, {}, {}
 			for label in ["train", "val"]:
-				with open(mconf.processed_data_save_dir_prefix + "1t/t{}.{}".format(task_id, label), "rb") as f:
+				with open(dir_prefix + "t{}.{}".format(task_id, label), "rb") as f:
 					data = pickle.load(f)
 					seqs[label] = [data["s0"], data["s1"]]
 					lengths[label] = [data["l0"], data["l1"]]
 					labels[label] = [data["lb0"], data["lb1"]]
 					bow_representations[label] = [data["bow0"], data["bow1"]]
 		else:
-			vocab = utils.vocab.Vocabulary(mconf=mconf)
-			print("updating vocab from task {} ...".format(task_id))
-			for s in [0, 1]:
-				vocab.update_vocab(mconf.data_dir_prefix + "train/t{}.{}".format(task_id, s))
-				vocab.update_vocab(mconf.data_dir_prefix + "val/t{}.{}".format(task_id, s))
+			if pretrain_epochs <= 0:
+				# vocab not ready
+				vocab = utils.vocab.Vocabulary(mconf=mconf)
+				if os.path.exists(mconf.data_dir_prefix + "t{}.all".format(task_id)):
+					# directly update from the complete text file
+					print("updating vocab from {} ...".format(mconf.data_dir_prefix + "t{}.all".format(task_id)))
+					vocab.update_vocab(mconf.data_dir_prefix + "t{}.all".format(task_id))
+				else:
+					print("updating vocab from task {} ...".format(task_id))
+					for s in [0, 1]:
+						vocab.update_vocab(mconf.data_dir_prefix + "train/t{}.{}".format(task_id, s))
+						vocab.update_vocab(mconf.data_dir_prefix + "val/t{}.{}".format(task_id, s))
+
+				with open(dir_prefix + "t{}.vocab".format(task_id), "wb") as f:
+					pickle.dump(vocab, f)
 
 			seqs, lengths, labels, bow_representations = {}, {}, {}, {}
 			for label in ["train", "val"]:
@@ -186,11 +253,8 @@ def run_vae(mconf, device, load_data=False, load_model=False, epochs=20, epochs_
 				lengths[label] = [l0, l1]
 				labels[label] = [lb0, lb1]
 				bow_representations[label] = [bow0, bow1]
-
-			with open(mconf.processed_data_save_dir_prefix + "1t/t{}.vocab".format(task_id), "wb") as f:
-				pickle.dump(vocab, f)
+			
 			data_train, data_val = dict(), dict()
-
 			for s in [0, 1]:
 				data_train["s{}".format(s)] = seqs["train"][s]
 				data_train["l{}".format(s)] = lengths["train"][s]
@@ -202,9 +266,9 @@ def run_vae(mconf, device, load_data=False, load_model=False, epochs=20, epochs_
 				data_val["lb{}".format(s)] = labels["val"][s]
 				data_val["bow{}".format(s)] = bow_representations["val"][s]
 
-			with open(mconf.processed_data_save_dir_prefix + "1t/t{}.train".format(task_id), "wb") as f:
+			with open(dir_prefix + "t{}.train".format(task_id), "wb") as f:
 				pickle.dump(data_train, f)
-			with open(mconf.processed_data_save_dir_prefix + "1t/t{}.val".format(task_id), "wb") as f:
+			with open(dir_prefix + "t{}.val".format(task_id), "wb") as f:
 				pickle.dump(data_val, f)
 
 			print("saved data for task {}".format(task_id))
@@ -212,6 +276,7 @@ def run_vae(mconf, device, load_data=False, load_model=False, epochs=20, epochs_
 		mconf.vocab_size = vocab._size
 		mconf.bow_size = vocab._bows
 
+		print("vocab_size = {}, bow_size = {}".format(vocab._size, vocab._bows))
 		for key in ["train", "val"]:
 			print("{}\n-------".format(key))
 			print("task {} data:".format(task_id))
@@ -221,20 +286,31 @@ def run_vae(mconf, device, load_data=False, load_model=False, epochs=20, epochs_
 					labels[key][s].shape, bow_representations[key][s].shape
 				)
 
-	else:
+	elif inference:
 		print("inference mode")
-		with open(mconf.processed_data_save_dir_prefix + "1t/t{}.vocab".format(task_id), "rb") as f:
+
+		if from_pretrain > 0:
+			vocab_file = mconf.processed_data_save_dir_prefix + "pretrain/vocab"
+		else:
+			vocab_file = mconf.processed_data_save_dir_prefix + "1t/{}.vocab".format(task_id)
+
+		with open(vocab_file, "rb") as f:
 			vocab = pickle.load(f)
 
 		mconf.vocab_size = vocab._size
 		mconf.bow_size = vocab._bows
+
+	else:
+		print("no operation, exiting ...")
+		exit(0)
 
 	# --------------------------------------------------------------
 	printer = pprint.PrettyPrinter(indent=4)
 	print(">>>>>>> Model Config <<<<<<<")
 	printer.pprint(vars(mconf))
 
-	if mconf.wordvec_path is None:
+	if mconf.wordvec_path is None or (pretrain_epochs <= 0 and epochs <= 0) or load_model:
+		# will be loading model parameters from checkpoints
 		init_embedding = None
 	else:
 		print("loading initial embedding from {} ...".format(mconf.wordvec_path))
@@ -248,24 +324,41 @@ def run_vae(mconf, device, load_data=False, load_model=False, epochs=20, epochs_
 	if load_model:
 		net.load_model(mconf.model_save_dir_prefix + mconf.last_ckpt)
 
+	if pretrain_epochs > 0:
+		# pretrain_seqs, pretrain_lengths are np.arrays, validation data are lists
+		pretrain_seqs = {"train": pretrain_seqs, "val": seqs["val"]}
+		pretrain_lengths = {"train": pretrain_lengths, "val": lengths["val"]}
+		_pretrain_vae(
+			net, mconf, pretrain_seqs, pretrain_lengths, vocab=vocab, 
+			total_epochs=pretrain_epochs, epochs_per_val=epochs_per_val,
+			batch_size=batch_size, task_id=task_id, dump_embeddings=dump_embeddings
+		)
+
+		model_file = "pretrain-{}.t{}".format(pretrain_epochs, task_id)
+		model_path = mconf.model_save_dir_prefix + model_file
+		net.save_model(model_path)
+		mconf.last_ckpt = model_file
+
 	if epochs > 0:
 		_train_vae(
 			net, mconf, seqs, lengths, labels, bow_representations, vocab=vocab,
 			total_epochs=epochs, epochs_per_val=epochs_per_val,
-			batch_size=batch_size, task_id=task_id
+			batch_size=batch_size, task_id=task_id, dump_embeddings=dump_embeddings
 		)
 
-		model_file = dt.datetime.now().strftime("%Y%m%d%H%M")
+		# model_file = dt.datetime.now().strftime("%Y%m%d%H%M")
+		model_file = "train-{}.t{}".format(epochs, task_id)
 		model_path = mconf.model_save_dir_prefix + model_file
 		net.save_model(model_path)
 		mconf.last_ckpt = model_file
 
 	if inference:
 		if epochs <= 0:
+			# current net with initial parameters
 			net.load_model(mconf.model_save_dir_prefix + mconf.last_ckpt)
 		
 		s0, s1, l0, l1, lb0, lb1, bow0, bow1 = utils.data_processor.load_task_data(
-			infer_task, mconf.data_dir_prefix, vocab,
+			task_id, mconf.data_dir_prefix, vocab,
 			label="infer", mconf=mconf
 		)
 
@@ -274,7 +367,7 @@ def run_vae(mconf, device, load_data=False, load_model=False, epochs=20, epochs_
 		infer_labels = [lb0, lb1]
 		infer_bows = [bow0, bow1]
 
-		style_embeddings = net.get_batch_style_embeddings(
+		content_embeddings, style_embeddings = net.get_batch_embeddings(
 			input_sequences=np.concatenate(infer_seqs, axis=0), 
 			lengths=np.concatenate(infer_lengths, axis=0)
 		)
@@ -282,20 +375,108 @@ def run_vae(mconf, device, load_data=False, load_model=False, epochs=20, epochs_
 			torch.mean(style_embeddings[:infer_lengths[0].shape[0]], axis=0),
 			torch.mean(style_embeddings[infer_lengths[0].shape[0]:], axis=0)
 		]
+
+		if dump_embeddings:
+
+			style_embeddings = style_embeddings.cpu().detach().numpy()
+			content_embeddings = content_embeddings.cpu().detach().numpy()
+
+			style_embeddings = [
+				style_embeddings[:infer_lengths[0].shape[0]], 
+				style_embeddings[infer_lengths[0].shape[0]:]
+			]
+			content_embeddings = [
+				content_embeddings[:infer_lengths[0].shape[0]],
+				content_embeddings[infer_lengths[0].shape[0]:]
+			]
+			with open(mconf.emb_save_dir_prefix + "t{}/infer.emb".format(task_id), "wb") as f:
+				embeddings = {
+					"style": style_embeddings,
+					"content": content_embeddings
+				}
+				pickle.dump(embeddings, f)
+				print("dumped embeddings to {}t{}/infer.emb".format(mconf.emb_save_dir_prefix, task_id))
+
 		for s in [0, 1]:
 			inferred_seqs, style_preds = net.infer(
 				infer_seqs[s], infer_lengths[s],
 				style_conditioning_embedding=style_conditioning_embeddings[1-s].cpu().detach().numpy()
 			)
 			sents = vocab.decode_sents(inferred_seqs)
-			with open(mconf.output_dir_prefix + "infer_t{}_{}-{}".format(infer_task, s, 1-s), 'w', encoding="utf-8") as f:
+			with open(mconf.output_dir_prefix + "infer_t{}_{}-{}".format(task_id, s, 1-s), 'w', encoding="utf-8") as f:
 				for sent, pred in zip(sents, style_preds):
 					f.write(sent + '\t' + str(pred.item()) + '\n')
 
 	return net
 
 
-def _train_vae(net, mconf, seqs, lengths, labels, bows, vocab, total_epochs=20, epochs_per_val=5, batch_size=64, task_id=1):
+def _pretrain_vae(net, mconf, seqs, lengths, vocab, total_epochs=10, epochs_per_val=5, batch_size=64, task_id=1, dump_embeddings=False):
+
+	print("pretraining vae ...")
+	turns = total_epochs // epochs_per_val
+	if total_epochs % epochs_per_val:
+		turns += 1
+
+	for turn in range(turns):
+		init_epoch = turn * epochs_per_val
+		end_epoch = min(total_epochs, (turn + 1) * epochs_per_val)
+		net.pretrain(
+			input_sequences_all=seqs["train"], 
+			lengths_all=lengths["train"], 
+			batch_size=batch_size, 
+			epochs=end_epoch, 
+			init_epoch=init_epoch
+		)
+		model_file = "pretrain-{}.t{}".format(end_epoch, task_id)
+		model_path = mconf.model_save_dir_prefix + model_file
+		net.save_model(model_path)
+		mconf.last_ckpt = model_file
+		print("evaluation\n-------")
+		print("inferring ...")
+		
+		content_embeddings, style_embeddings = net.get_batch_embeddings(
+			input_sequences=np.concatenate(seqs["val"], axis=0), 
+			lengths=np.concatenate(lengths["val"], axis=0),
+			batch_size=batch_size
+		)
+		style_conditioning_embeddings = [
+			torch.mean(style_embeddings[:lengths["val"][0].shape[0]], axis=0),
+			torch.mean(style_embeddings[lengths["val"][0].shape[0]:], axis=0)
+		]
+
+		if dump_embeddings:
+
+			style_embeddings = style_embeddings.cpu().detach().numpy()
+			content_embeddings = content_embeddings.cpu().detach().numpy()
+
+			style_embeddings = [
+				style_embeddings[:lengths["val"][0].shape[0]], 
+				style_embeddings[lengths["val"][0].shape[0]:]
+			]
+			content_embeddings = [
+				content_embeddings[:lengths["val"][0].shape[0]],
+				content_embeddings[lengths["val"][0].shape[0]:]
+			]
+			with open(mconf.emb_save_dir_prefix + "t{}/pretrain-{}.emb".format(task_id, end_epoch), "wb") as f:
+				embeddings = {
+					"style": style_embeddings,
+					"content": content_embeddings
+				}
+				pickle.dump(embeddings, f)
+				print("dumped embeddings to {}t{}/pretrain-{}.emb".format(mconf.emb_save_dir_prefix, task_id, end_epoch))
+		for s in [0, 1]:
+			inferred_seqs, style_preds = net.infer(
+				seqs["val"][s], lengths["val"][s],
+				style_conditioning_embedding=style_conditioning_embeddings[1-s].cpu().detach().numpy()
+			)
+			sents = vocab.decode_sents(inferred_seqs)
+			with open(mconf.output_dir_prefix + "pretrain-{}_t{}_{}-{}".format(end_epoch, task_id, s, 1-s), 'w', encoding="utf-8") as f:
+				for sent, pred in zip(sents, style_preds):
+					f.write(sent + '\t' + str(pred.item()) + '\n')
+			print("\t{}: ".format(s), inferred_seqs.shape)
+
+
+def _train_vae(net, mconf, seqs, lengths, labels, bows, vocab, total_epochs=20, epochs_per_val=5, batch_size=64, task_id=1, dump_embeddings=False):
 
 	print("training vae ...")
 	turns = total_epochs // epochs_per_val
@@ -314,13 +495,13 @@ def _train_vae(net, mconf, seqs, lengths, labels, bows, vocab, total_epochs=20, 
 			epochs=end_epoch, 
 			init_epoch=init_epoch
 		)
-		model_file = "epoch-{}.t{}".format(end_epoch, task_id)
+		model_file = "train-{}.t{}".format(end_epoch, task_id)
 		model_path = mconf.model_save_dir_prefix + model_file
 		net.save_model(model_path)
 		mconf.last_ckpt = model_file
 		print("evaluation\n-------")
 		print("inferring ...")
-		style_embeddings = net.get_batch_style_embeddings(
+		content_embeddings, style_embeddings = net.get_batch_embeddings(
 			input_sequences=np.concatenate(seqs["val"], axis=0), 
 			lengths=np.concatenate(lengths["val"], axis=0)
 		)
@@ -328,13 +509,34 @@ def _train_vae(net, mconf, seqs, lengths, labels, bows, vocab, total_epochs=20, 
 			torch.mean(style_embeddings[:lengths["val"][0].shape[0]], axis=0),
 			torch.mean(style_embeddings[lengths["val"][0].shape[0]:], axis=0)
 		]
+
+		if dump_embeddings:
+
+			style_embeddings = style_embeddings.cpu().detach().numpy()
+			content_embeddings = content_embeddings.cpu().detach().numpy()
+
+			style_embeddings = [
+				style_embeddings[:lengths["val"][0].shape[0]], 
+				style_embeddings[lengths["val"][0].shape[0]:]
+			]
+			content_embeddings = [
+				content_embeddings[:lengths["val"][0].shape[0]],
+				content_embeddings[lengths["val"][0].shape[0]:]
+			]
+			with open(mconf.emb_save_dir_prefix + "t{}/train-{}.emb".format(task_id, end_epoch), "wb") as f:
+				embeddings = {
+					"style": style_embeddings,
+					"content": content_embeddings
+				}
+				pickle.dump(embeddings, f)
+				print("dumped embeddings to {}t{}/train-{}.emb".format(mconf.emb_save_dir_prefix, task_id, end_epoch))
 		for s in [0, 1]:
 			inferred_seqs, style_preds = net.infer(
 				seqs["val"][s], lengths["val"][s],
 				style_conditioning_embedding=style_conditioning_embeddings[1-s].cpu().detach().numpy()
 			)
 			sents = vocab.decode_sents(inferred_seqs)
-			with open(mconf.output_dir_prefix + "epoch-{}_t{}_{}-{}".format(end_epoch, task_id, s, 1-s), 'w', encoding="utf-8") as f:
+			with open(mconf.output_dir_prefix + "train-{}_t{}_{}-{}".format(end_epoch, task_id, s, 1-s), 'w', encoding="utf-8") as f:
 				for sent, pred in zip(sents, style_preds):
 					f.write(sent + '\t' + str(pred.item()) + '\n')
 			print("\t{}: ".format(s), inferred_seqs.shape)
@@ -359,7 +561,8 @@ def main():
 	if args.online_inference:
 		run_online_inference(
 			mconf=mconf, ckpt=args.ckpt,
-			tgt_file=args.tgt_file, device=torch.device("cpu"), task_id=args.task_id
+			tgt_file=args.tgt_file, device=torch.device("cpu"), 
+			task_id=args.task_id, from_pretrain=args.from_pretrain
 		)
 	else:
 		if not args.disable_gpu and torch.cuda.is_available():
@@ -370,12 +573,13 @@ def main():
 
 		run_vae(
 			mconf=mconf, device=device, load_data=args.load_data, load_model=args.load_model,
-			epochs=args.epochs, epochs_per_val=args.epochs_per_val,
-			batch_size=args.batch_size, task_id=args.task_id
+			epochs=args.epochs, pretrain_epochs=args.pretrain_epochs, epochs_per_val=args.epochs_per_val,
+			inference=args.inference, batch_size=args.batch_size, task_id=args.task_id, 
+			dump_embeddings=args.dump_embeddings, from_pretrain=args.from_pretrain
 		)
-		with open(mconf.output_dir_prefix + "vae.json", 'w') as f:
+		with open(mconf.output_dir_prefix + "t{}.json".format(args.task_id), 'w') as f:
 			json.dump(vars(mconf), f, indent=4)
-			print("saved model config to {}".format(mconf.output_dir_prefix + "vae.json"))
+			print("saved model config to {}".format(mconf.output_dir_prefix + "t{}.json".format(args.task_id)))
 
 	print(">>>>>>> Completed <<<<<<<")
 

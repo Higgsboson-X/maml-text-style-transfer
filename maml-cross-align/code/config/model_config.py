@@ -23,7 +23,7 @@ class ModelConfig(object):
 		self.max_seq_length = 15
 
 		self.vocab_size = 5000
-		self.vocab_cutoff = 7
+		self.vocab_cutoff = 5
 
 		self.pad_id = 0
 		self.eos_id = 1
@@ -46,6 +46,7 @@ class ModelConfig(object):
 
 		self.last_ckpt = "final"
 
+		self.emb_save_dir_prefix = "../emb/{}/".format(self.corpus)
 		self.model_save_dir_prefix = "../ckpt/{}/".format(self.corpus)
 		self.processed_data_save_dir_prefix = "../data/{}/processed/".format(self.corpus)
 		self.data_dir_prefix = "../data/{}/".format(self.corpus)
@@ -57,13 +58,15 @@ class ModelConfig(object):
 	def init_from_dict(self, config):
 
 		for key in config:
-			setattr(self, key, config[key])
+			if hasattr(self, key):
+				setattr(self, key, config[key])
 
 		self.update_corpus()
 
 
 	def update_corpus(self):
 
+		self.emb_save_dir_prefix = "../emb/{}/".format(self.corpus)
 		self.model_save_dir_prefix = "../ckpt/{}/".format(self.corpus)
 		self.processed_data_save_dir_prefix = "../data/{}/processed/".format(self.corpus)
 		self.data_dir_prefix = "../data/{}/".format(self.corpus)

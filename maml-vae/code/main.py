@@ -42,6 +42,12 @@ def main():
 			mconf=mconf, ckpt=args.ckpt, 
 			tgt_file=args.tgt_file, device=torch.device("cpu")
 		)
+	elif args.extract_embeddings:
+		run.extract_embeddings(
+			mconf=mconf, ckpt=args.ckpt, task_id=args.task_id,
+			device=torch.device("cpu"), pretrain=args.from_pretrain,
+			sample_size=args.sample_size
+		)
 	else:
 		if not args.disable_gpu and torch.cuda.is_available():
 			device = torch.device("cuda:{}".format(args.device_index))
@@ -52,9 +58,9 @@ def main():
 		run.run_maml(
 			mconf=mconf, device=device, load_data=args.load_data, load_model=args.load_model,
 			maml_epochs=args.maml_epochs, transfer_epochs=args.transfer_epochs,
-			epochs_per_val=args.epochs_per_val, infer_task=args.infer_task_id,
+			epochs_per_val=args.epochs_per_val, infer_task=args.task_id,
 			maml_batch_size=args.maml_batch_size, sub_batch_size=args.sub_batch_size, 
-			train_batch_size=args.train_batch_size
+			train_batch_size=args.train_batch_size, dump_embeddings=args.dump_embeddings
 		)
 		with open("../config/{}.json".format(args.corpus), 'w') as f:
 			json.dump(vars(mconf), f, indent=4)

@@ -29,7 +29,7 @@ def load_args():
 	)
 
 	parser.add_argument(
-		"--maml-batch-size", type=int, default=32,
+		"--maml-batch-size", type=int, default=16,
 		help="batch size for meta-learning"
 	)
 	parser.add_argument(
@@ -42,20 +42,36 @@ def load_args():
 	)
 
 	parser.add_argument(
-		"--maml-epochs", type=int, default=10,
+		"--maml-epochs", type=int, default=0,
 		help="meta-training epochs"
 	)
 	parser.add_argument(
-		"--transfer-epochs", type=int, default=6,
+		"--transfer-epochs", type=int, default=0,
 		help="fine-tuning epochs"
 	)
 	parser.add_argument(
-		"--epochs-per-val", type=int, default=2,
+		"--epochs-per-val", type=int, default=1,
 		help="epochs per validation and checkpointing"
 	)
 	parser.add_argument(
-		"--infer-task-id", type=str, default='',
-		help="task for inference, to disable training, set maml and transfer epochs to be 0"
+		"--dump-embeddings", action="store_true",
+		help="whether to dump content and style embeddings in validation"
+	)
+	parser.add_argument(
+		"--task-id", type=str, default='',
+		help="task for inference or extract embeddings, to disable training, set maml and transfer epochs to be 0"
+	)
+	parser.add_argument(
+		"--extract-embeddings", action="store_true", 
+		help="extract embeddings from saved checkpoint"
+	)
+	parser.add_argument(
+		"--sample-size", type=int, default=1000,
+		help="size of extracting embeddings"
+	)
+	parser.add_argument(
+		"--from-pretrain", action="store_true",
+		help="whether to reload ckpt from pretrain model path"
 	)
 
 	parser.add_argument(

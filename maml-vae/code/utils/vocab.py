@@ -17,12 +17,10 @@ class Vocabulary:
 
 		self._tokenize = word_tokenize
 		self._size = 4
-		if mconf.filter_stopwords:
-			self.filter_list = list(set(stopwords.words("english")))
-		else:
-			self.filter_list = []
+		self.filter_list = list(string.punctuation)
 
-		self.bow_filter_list = list(set(stopwords.words("english")))
+		self.bow_filter_list = list(set(stopwords.words("english"))) + self.filter_list
+		# self.bow_filter_list = self.filter_list
 		# self.bow_tokenizer = RegexpTokenizer(r"\w+")
 		self._bows = 0
 
@@ -73,14 +71,6 @@ class Vocabulary:
 			except:
 				pass
 			tokenized = self._tokenize(line)
-			bow_tokenized = [
-				w for w in tokenized if \
-					w not in self.bow_filter_list and \
-					all(char not in string.punctuation for char in w)
-			]
-			if len(bow_tokenized) > len(tokenized):
-				print("[DEBUG]", line, bow_tokenized, tokenized)
-				raise Exception("error")
 			if sentences % 5000 == 0:
 				print("words: {}, bows: {}, lines: {}".format(added_words, added_bows, sentences))
 			# update vocab
@@ -92,8 +82,7 @@ class Vocabulary:
 					added_words += 1
 				else:
 					words[word] += 1
-			# update bows
-			for word in bow_tokenized:
+
 				if word in self._bow2id or word in self.bow_filter_list:
 					continue
 				if word not in bows:
@@ -118,12 +107,12 @@ class Vocabulary:
 		if added_bows > added_words:
 			print("[DEBUG]: ", [w for w in bows if w not in self._word2id])
 
+		self._size += added_words
+		self._bows += added_bows
+
 		print("updated: words {}, bows {}".format(added_words, added_bows))
 		print("current: words {}, bows {}".format(self._size, self._bows))
 
-		self._size += added_words
-		self._bows += added_bows
-		
 
 	def word2id(self, word):
 
@@ -174,7 +163,7 @@ class Vocabulary:
 				encoded[pos] = self.word2id(word)
 				pos += 1
 
-			if length:
+			if length is not None:
 				if length <= len(encoded):
 					encoded = encoded[:length]
 					# encoded[-1] = 0
@@ -225,13 +214,15 @@ class Vocabulary:
 
 		for sent in sents:
 			sent = self._tokenize(sent.lower())
-			sent = [w for w in sent if w not in self.bow_filter_list and w[0] not in string.punctuation]
+			sent = [w for w in sent if w not in self.bow_filter_list]
 			bow = []
 			for k in range(len(sent)):
-				if maxlen is not None and k >= maxlen:
-					break
 				if sent[k] in self._bow2id:
 					bow.append(self._bow2id[sent[k]])
+
+			if maxlen is not None:
+				if maxlen <= len(bow):
+					bow = bow[:maxlen]
 
 			bow_seqs.append(bow)
 

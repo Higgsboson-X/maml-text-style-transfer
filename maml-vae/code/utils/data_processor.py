@@ -26,7 +26,48 @@ def makeup_seqs(X, lengths, labels, bow_representations, n):
 	return X[sample], lengths[sample], labels[sample], bow_representations[sample]
 
 
-def get_batch_generator(seqs, lengths, labels, bow_representations, batch_size, device):
+def get_pretrain_batch_generator(seqs, lengths, batch_size, device, shuffle=True):
+
+	n = lengths.shape[0]
+
+	num_batches = n // batch_size
+	if n % batch_size:
+		n += 1
+
+	batch_generator = _pretrain_batch_generator(
+		seqs, lengths, batch_size, n, 
+		num_batches, device, shuffle=shuffle
+	)
+
+	return batch_generator, num_batches
+
+def _pretrain_batch_generator(seqs, lengths, batch_size, data_size, num_batches, device, shuffle=True):
+
+	b = 0
+	inds = list(range(data_size))
+	if shuffle:
+		np.random.shuffle(inds)
+	while True:
+		start = b * batch_size
+		end = min(data_size, (b + 1) * batch_size)
+		seqs_batch = []
+		lengths_batch = []
+
+		seqs_batch = torch.tensor(seqs[start:end], dtype=torch.int32, device=device)
+		lengths_batch = torch.tensor(lengths[start:end], dtype=torch.int32, device=device)
+
+		yield seqs_batch, lengths_batch # , (end - start) # yield also batch_size ?
+
+		if b == num_batches - 1:
+			if shuffle:
+				print("shuffling ...")
+				np.random.shuffle(inds)
+			b = 0
+		else:
+			b += 1
+
+
+def get_batch_generator(seqs, lengths, labels, bow_representations, batch_size, device, shuffle=True):
 
 	sizes = [seq.shape[0] for seq in seqs]
 	n = max(sizes)
@@ -42,16 +83,20 @@ def get_batch_generator(seqs, lengths, labels, bow_representations, batch_size, 
 	if n % batch_size:
 		num_batches += 1
 
-	batch_generator = _batch_generator(seqs, lengths, labels, bow_representations, batch_size, n, num_batches, device)
+	batch_generator = _batch_generator(
+		seqs, lengths, labels, bow_representations,
+		batch_size, n, num_batches, device, shuffle=shuffle
+	)
 
 	return batch_generator, num_batches
 
 
-def _batch_generator(seqs, lengths, labels, bow_representations, batch_size, data_size, num_batches, device):
+def _batch_generator(seqs, lengths, labels, bow_representations, batch_size, data_size, num_batches, device, shuffle=True):
 
 	b = 0
 	inds = list(range(data_size))
-	np.random.shuffle(inds)
+	if shuffle:
+		np.random.shuffle(inds)
 	while True:
 		start = b * batch_size
 		end = min(data_size, (b + 1) * batch_size)
@@ -65,22 +110,39 @@ def _batch_generator(seqs, lengths, labels, bow_representations, batch_size, dat
 			labels_batch.append(label[inds][start:end])
 			bow_representations_batch.append(bow_representation[inds][start:end])
 
-		seqs_batch = torch.tensor(np.concatenate(seqs_batch, axis=0), dtype=torch.int32, device=device)
-		lengths_batch = torch.tensor(np.concatenate(lengths_batch, axis=0), dtype=torch.int32, device=device)
-		labels_batch = torch.tensor(np.concatenate(labels_batch, axis=0), dtype=torch.int32, device=device)
-		bow_representations_batch = torch.tensor(np.concatenate(bow_representations_batch, axis=0), dtype=torch.float32, device=device)
+
+		seqs_batch = np.concatenate(seqs_batch, axis=0)
+		lengths_batch = np.concatenate(lengths_batch, axis=0)
+		labels_batch = np.concatenate(labels_batch, axis=0)
+		bow_representations_batch = np.concatenate(bow_representations_batch, axis=0)
+
+		if shuffle:
+			actual_batch_size = labels_batch.shape[0]
+			batch_inds = list(range(actual_batch_size))
+			np.random.shuffle(batch_inds)
+			
+			seqs_batch = seqs_batch[batch_inds]
+			lengths_batch = lengths_batch[batch_inds]
+			labels_batch = labels_batch[batch_inds]
+			bow_representations_batch = bow_representations_batch[batch_inds]
+
+		seqs_batch = torch.tensor(seqs_batch, dtype=torch.int32, device=device)
+		lengths_batch = torch.tensor(lengths_batch, dtype=torch.int32, device=device)
+		labels_batch = torch.tensor(labels_batch, dtype=torch.int32, device=device)
+		bow_representations_batch = torch.tensor(bow_representations_batch, dtype=torch.float32, device=device)
 
 		yield seqs_batch, lengths_batch, labels_batch, bow_representations_batch
 
 		if b == num_batches - 1:
-			print("shuffling ...")
-			np.random.shuffle(inds)
+			if shuffle:
+				print("shuffling ...")
+				np.random.shuffle(inds)
 			b = 0
 		else:
 			b += 1
 
 
-def get_maml_batch_generator(seqs, lengths, labels, bow_representations, batch_size, num_tasks, device):
+def get_maml_batch_generator(seqs, lengths, labels, bow_representations, batch_size, num_tasks, device, shuffle=True):
 
 	sizes = []
 	for seqs_task in seqs:
@@ -102,16 +164,20 @@ def get_maml_batch_generator(seqs, lengths, labels, bow_representations, batch_s
 	if n % batch_size:
 		num_batches += 1
 
-	batch_generator = _maml_batch_generator(seqs, lengths, labels, bow_representations, batch_size, n, num_batches, num_tasks, device=device)
+	batch_generator = _maml_batch_generator(
+		seqs, lengths, labels, bow_representations,
+		batch_size, n, num_batches, num_tasks, device=device, shuffle=shuffle
+	)
 
 	return batch_generator, num_batches
 
 
-def _maml_batch_generator(seqs, lengths, labels, bow_representations, batch_size, data_size, num_batches, num_tasks, device):
+def _maml_batch_generator(seqs, lengths, labels, bow_representations, batch_size, data_size, num_batches, num_tasks, device, shuffle=True):
 
 	b = 0
 	inds = list(range(data_size))
-	np.random.shuffle(inds)
+	if shuffle:
+		np.random.shuffle(inds)
 	while True:
 		seqs_batch_all, lengths_batch_all, labels_batch_all, bow_representations_batch_all = [], [], [], []
 		start = b * batch_size
@@ -126,10 +192,21 @@ def _maml_batch_generator(seqs, lengths, labels, bow_representations, batch_size
 				lengths_batch.append(length[inds][start:end])
 				labels_batch.append(label[inds][start:end])
 				bow_representations_batch.append(bow_representation[inds][start:end])
+			
 			seqs_batch = np.concatenate(seqs_batch, axis=0)
 			lengths_batch = np.concatenate(lengths_batch, axis=0)
 			labels_batch = np.concatenate(labels_batch, axis=0)
 			bow_representations_batch = np.concatenate(bow_representations_batch, axis=0)
+
+			if shuffle:
+				actual_batch_size = labels_batch.shape[0]
+				batch_inds = list(range(actual_batch_size))
+				np.random.shuffle(batch_inds)
+
+				seqs_batch = seqs_batch[batch_inds]
+				lengths_batch = lengths_batch[batch_inds]
+				labels_batch = labels_batch[batch_inds]
+				bow_representations_batch = bow_representations_batch[batch_inds]
 
 			seqs_batch_all.append(torch.tensor(seqs_batch, dtype=torch.int32, device=device))
 			lengths_batch_all.append(torch.tensor(lengths_batch, dtype=torch.int32, device=device))
@@ -139,8 +216,9 @@ def _maml_batch_generator(seqs, lengths, labels, bow_representations, batch_size
 		yield seqs_batch_all, lengths_batch_all, labels_batch_all, bow_representations_batch_all
 
 		if b == num_batches - 1:
-			print("shuffling ...")
-			np.random.shuffle(inds)
+			if shuffle:
+				print("shuffling ...")
+				np.random.shuffle(inds)
 			b = 0
 		else:
 			b += 1
@@ -168,9 +246,10 @@ def get_sequence_bow_representations(bow_seqs, bow_size):
 			bow_representations[i][seq[j]] += 1.
 		if len(seq) == 0:
 			skipped += 1
+			# print("empty:", i)
 			continue
 		inds.append(i)
-		bow_representations[i] /= len(seq)
+		bow_representations[i] /= max(sum(bow_representations[i]), 1)
 
 	print("[WARNING] skipped {} sentences".format(skipped))
 
@@ -180,25 +259,32 @@ def get_sequence_bow_representations(bow_seqs, bow_size):
 # ====================================================================================================
 # get data from text files
 
-def get_seq_data_from_file(filename, vocab, mconf, label=0):
+def get_seq_data_from_file(filename, vocab, mconf, label=0, pretrain=False):
 
 	with open(filename, 'r', encoding="utf-8") as f:
 		lines = f.readlines()
 
-	bow_seqs = vocab.get_bow_seqs(lines, maxlen=mconf.max_seq_length) # no padding
-	bow_representations, inds = get_sequence_bow_representations(bow_seqs, vocab._bows)
-
 	seqs = np.array(vocab.encode_sents(lines, length=mconf.max_seq_length, pad_token=False), dtype="int32")
 	lengths = get_sequence_lengths(seqs, mconf.min_seq_length, mconf.max_seq_length)
-	labels = np.full(lengths.shape[0], label, dtype="int32")
+
+	if pretrain:
+		bow_representations = []
+		labels = []
+	else:
+		bow_seqs = vocab.get_bow_seqs(lines, maxlen=mconf.max_seq_length) # no padding
+		# bow_seqs = vocab.get_bow_seqs(lines)
+		bow_representations, inds = get_sequence_bow_representations(bow_seqs, vocab._bows)
+		# bow_representations = get_sequence_bow_representations(bow_seqs, vocab._bows)
+		labels = np.full(lengths.shape[0], label, dtype="int32")
 
 	return seqs[inds], lengths[inds], labels[inds], bow_representations
+	# return seqs, lengths, labels, bow_representations
 
 
 def load_task_data(task_id, data_dir, vocab, label, mconf):
 
-	s0, l0, lb0, bow0 = get_seq_data_from_file("{}/{}/t{}.0".format(data_dir, label, task_id), vocab, mconf)
-	s1, l1, lb1, bow1 = get_seq_data_from_file("{}/{}/t{}.1".format(data_dir, label, task_id), vocab, mconf)
+	s0, l0, lb0, bow0 = get_seq_data_from_file("{}/{}/t{}.0".format(data_dir, label, task_id), vocab, mconf, label=0)
+	s1, l1, lb1, bow1 = get_seq_data_from_file("{}/{}/t{}.1".format(data_dir, label, task_id), vocab, mconf, label=1)
 
 	return s0, s1, l0, l1, lb0, lb1, bow0, bow1
 
