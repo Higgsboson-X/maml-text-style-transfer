@@ -6,13 +6,13 @@ This repository contains two text style transfer base models, *CrossAlign* and *
 
 ### CrossAlign for Style Transfer
 
-*CrossAlign* model for text style transfer is proposed by Shen et al. in 2017. The model structure is shown in the following figure, where *s*'s are the style labels, *z*'s are the encoded sentence vectors. *D* denotes adversarial discriminators. The encoder and decoder are a seq2seq model with single GRU units. The adversaries and seq2seq model are trained sequentially in each step of updates.
+*CrossAlign* model for text style transfer is proposed by [Shen et al.](https://github.com/shentianxiao/language-style-transfer) in 2017. The model structure is shown in the following figure, where *s*'s are the style labels, *z*'s are the encoded sentence vectors. *D* denotes adversarial discriminators. The encoder and decoder are a seq2seq model with single GRU units. The adversaries and seq2seq model are trained sequentially in each step of updates.
 
 [cross align](https://github.com//Higgsboson-X/maml-text-style-transfer/blob/master/images/crossalign.png "Cross Align")
 
 ### VAE for Style Transfer
 
-Variational autoencoder for style transfer is proposed by John et al. in 2018. It uses a set of style- and content-oriented losses to disentangle style and content embedding in latent space. The model diagram is shown below.
+Variational autoencoder for style transfer is proposed by [John et al.](https://github.com/vineetjohn/linguistic-style-transfer) in 2018. It uses a set of style- and content-oriented losses to disentangle style and content embedding in latent space. The model diagram is shown below.
 
 [vae](https://github.com//Higgsboson-X/maml-text-style-transfer/blob/master/images/vae.png "VAE")
 
