@@ -8,19 +8,19 @@ This repository contains two text style transfer base models, *CrossAlign* and *
 
 *CrossAlign* model for text style transfer is proposed by [Shen et al.](https://github.com/shentianxiao/language-style-transfer) in 2017. The model structure is shown in the following figure, where *s*'s are the style labels, *z*'s are the encoded sentence vectors. *D* denotes adversarial discriminators. The encoder and decoder are a seq2seq model with single GRU units. The adversaries and seq2seq model are trained sequentially in each step of updates.
 
-![cross align](https://github.com//Higgsboson-X/maml-text-style-transfer/blob/master/images/crossalign.png "Cross Align")
+![crossalign](https://github.com/Higgsboson-X/maml-text-style-transfer/blob/master/images/crossalign.png "Cross Align")
 
 ### VAE for Style Transfer
 
 Variational autoencoder for style transfer is proposed by [John et al.](https://github.com/vineetjohn/linguistic-style-transfer) in 2018. It uses a set of style- and content-oriented losses to disentangle style and content embedding in latent space. The model diagram is shown below.
 
-![vae](https://github.com//Higgsboson-X/maml-text-style-transfer/blob/master/images/vae.png "VAE")
+![vae](https://github.com/Higgsboson-X/maml-text-style-transfer/blob/master/images/vae.png "VAE")
 
 ### Model Agnostic Meta-learning
 
 Compared with other model-based meta-learning methods, model agnostic meta-learning only uses the gradient information, and thus is well suited for algorithms that optimize thier objectives using gradient descent. The model architecture is shown below.
 
-![maml](https://github.com//Higgsboson-X/maml-text-style-transfer/blob/master/images/maml.png "MAML")
+![maml](https://github.com/Higgsboson-X/maml-text-style-transfer/blob/master/images/maml.png "MAML")
 
 Specifically, we adapt this model architecture to our two base models above for our model, called Small-data Text Style Transfer (ST2).
 
