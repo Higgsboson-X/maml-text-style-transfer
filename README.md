@@ -24,8 +24,6 @@ Compared with other model-based meta-learning methods, model agnostic meta-learn
 
 Specifically, we adapt this model architecture to our two base models above for our model, called Small-data Text Style Transfer (ST2).
 
-![st2](https://github.com//Higgsboson-X/maml-text-style-transfer/blob/master/images/st2.png "ST2")
-
 ## Dependencies
 
 - python 3.x
